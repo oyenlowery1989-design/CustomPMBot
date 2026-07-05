@@ -78,6 +78,7 @@
 - [x] `/analytics [days]` — messages/day, new users/day, top users, busiest hours
 - [x] `/help <command>` — per-command usage from single source (`handlers/help_topics.py`); stale hardcoded lists replaced
 - [x] `docs/MANUAL.md` — complete manual: setup, every feature, troubleshooting
+- [x] `/manual` + `/manual publish` — manual as Telegram document + Telegraph Instant View article (stable URL)
 
 ### Medium Priority
 - [ ] Auto-translate incoming messages (detect language)

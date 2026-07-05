@@ -146,7 +146,14 @@ Users manage wallets via `/start` → 💳 or `/wallet` (max 5 each).
 - Bot command menus are set automatically (user commands for everyone, full
   admin menu inside the admin group).
 
-## 10. Operations
+## 10. The manual itself
+
+- `/manual` — this document as a file, with an ⚡ Instant View button once published.
+- `/manual publish` — publish/update the Telegraph version (native in-app
+  article). The URL stays stable across updates; re-run after editing
+  `docs/MANUAL.md`.
+
+## 11. Operations
 
 - **Health endpoint:** set `HEALTH_PORT=8080` → `curl host:8080/health` returns
   `{"status":"ok","users":N,"schema_version":10,"uptime_seconds":N}`.
@@ -158,7 +165,7 @@ Users manage wallets via `/start` → 💳 or `/wallet` (max 5 each).
 - **Tests:** `pip install -r requirements-dev.txt && python -m pytest` — 328
   tests, fully offline.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Check |
 |---|---|

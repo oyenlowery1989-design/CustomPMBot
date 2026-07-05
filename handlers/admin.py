@@ -103,18 +103,39 @@ async def cmd_setmsg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"✅ Setting <b>{args[0]}</b> updated.", parse_mode=ParseMode.HTML)
 
 async def cmd_manual(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """/manual — send docs/MANUAL.md as a Telegram document."""
+    """/manual — send docs/MANUAL.md as a document, with an Instant View
+    button when the Telegraph page exists. /manual publish — (re)publish it."""
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
     if not update.message: return
+    from database.settings import db_get_setting
+
+    if ctx.args and ctx.args[0].lower() == "publish":
+        from services.telegraph import publish_manual
+        try:
+            url = await publish_manual()
+            await update.message.reply_text(
+                f"📖 Manual published — opens as Instant View:\n{url}")
+        except Exception as e:
+            await update.message.reply_text(f"Telegraph publish failed: {e}")
+        return
+
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(base_dir, "docs", "MANUAL.md")
     if not os.path.exists(path):
         await update.message.reply_text("Manual file not found on the server.")
         return
+
+    keyboard = None
+    url = db_get_setting("telegraph_url")
+    if url:
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⚡ Open Instant View", url=url)]])
+    caption = "📖 Complete manual. In-chat: /help <command> for quick details."
+    if not url:
+        caption += "\nTip: /manual publish creates an Instant View version."
     with open(path, "rb") as f:
         await update.message.reply_document(
             document=f, filename="CustomPMBot-Manual.md",
-            caption="📖 Complete manual. In-chat: /help <command> for quick details.")
+            caption=caption, reply_markup=keyboard)
 
 async def cmd_analytics(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """/analytics [days] — activity report: messages/day, new users, top users, busy hours."""
