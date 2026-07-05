@@ -1,6 +1,7 @@
 import html
+import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
+from telegram.constants import ForumIconColor, ParseMode
 from telegram.ext import ContextTypes
 from config import ADMIN_GROUP_ID, log, ADMIN_IDS
 from database.users import db_get_user_by_topic, db_set_relay_paused
@@ -29,7 +30,8 @@ async def cmd_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             log.warning("Custom topic name truncated to 128 chars: %r", name)
             await update.message.reply_text("⚠️ Topic name was longer than 128 chars — truncated.")
         try:
-            topic = await ctx.bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name.title())
+            icon = random.choice(list(ForumIconColor))
+            topic = await ctx.bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name.title(), icon_color=icon)
             db_create_custom_topic(name.lower(), topic.message_thread_id)
             await update.message.reply_text(f"✅ Created topic <b>{name}</b>", parse_mode=ParseMode.HTML)
         except Exception as e: await update.message.reply_text(f"Error: {e}")

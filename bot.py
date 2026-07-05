@@ -9,9 +9,9 @@ from database.bans import cleanup_expired_bans
 from database.migrations import _run_migrations
 from services.watcher import StellarWatcher
 from handlers.user import cmd_start, cmd_help, cmd_settings
-from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast
+from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search
 from handlers.relay import handle_private_message, handle_admin_group_message
-from handlers.broadcast import _find_broadcast_topic
+from handlers.broadcast import _find_broadcast_topic, cmd_schedule, process_due_broadcasts
 from handlers.topics import cmd_topic, cmd_close, cmd_reopen, cmd_note
 from handlers.tags import cmd_tag
 from handlers.export import cmd_export
@@ -25,6 +25,16 @@ from handlers.wallet import (
 from utils.strings import load_texts
 
 BAN_CLEANUP_INTERVAL = 300  # seconds
+SCHEDULE_INTERVAL = 30  # seconds
+
+async def _scheduled_broadcast_loop(app: Application) -> None:
+    """Fire scheduled broadcasts when their run_at time arrives."""
+    while True:
+        try:
+            await process_due_broadcasts(app.bot)
+        except Exception as e:
+            log.error("Scheduled broadcast loop failed: %s", e)
+        await asyncio.sleep(SCHEDULE_INTERVAL)
 
 async def _ban_cleanup_loop() -> None:
     """Periodically purge expired bans so auto-unban doesn't wait for the
@@ -48,6 +58,7 @@ async def post_init(app: Application) -> None:
     app.bot_data["bg_tasks"] = [
         asyncio.create_task(watcher.start(), name="stellar-watcher"),
         asyncio.create_task(_ban_cleanup_loop(), name="ban-cleanup"),
+        asyncio.create_task(_scheduled_broadcast_loop(app), name="scheduled-broadcasts"),
     ]
     
     # 1. Set Default Commands (for everyone)
@@ -69,6 +80,9 @@ async def post_init(app: Application) -> None:
         BotCommand("export", "Export conversation log"),
         BotCommand("canned", "Canned responses"),
         BotCommand("forcebroadcast", "Global broadcast override"),
+        BotCommand("schedule", "Schedule a broadcast"),
+        BotCommand("users", "List users with filters"),
+        BotCommand("search", "Search message logs"),
         BotCommand("wallets", "List all user wallets"),
         BotCommand("close", "Archive topic"),
         BotCommand("reopen", "Reopen topic"),
@@ -119,6 +133,9 @@ def main() -> None:
     app.add_handler(CommandHandler("banned", cmd_banned))
     app.add_handler(CommandHandler("setmsg", cmd_setmsg))
     app.add_handler(CommandHandler("forcebroadcast", cmd_forcebroadcast))
+    app.add_handler(CommandHandler("schedule", cmd_schedule))
+    app.add_handler(CommandHandler("users", cmd_users))
+    app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("tag", cmd_tag))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("canned", cmd_canned))

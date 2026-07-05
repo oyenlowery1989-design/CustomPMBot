@@ -68,14 +68,14 @@
 - Add timestamp to stats output (done in v2.1) ✅
 - Custom topic system (done in v2.1) ✅
 - Auto-create default topics on first run (stats, logs)
-- `/users` command — list all users with filters (active, banned, tagged)
-- `/search <query>` — search messages by text
+- `/users` command — list all users with filters (active, banned, tagged) ✅ (2026-07-05)
+- `/search <query>` — search messages by text ✅ (2026-07-05)
 
 ### Broadcasting
-- Scheduled broadcasts — `/schedule <time> <message>`
+- Scheduled broadcasts — `/schedule <duration> <message>` ✅ (2026-07-05)
 - Broadcast preview — send to admin first before broadcasting
-- Broadcast cancel — `/cancel` during broadcast
-- Broadcast history — log all broadcasts with recipient count
+- Broadcast cancel — `/schedule cancel <id>` for scheduled ones ✅ (2026-07-05)
+- Broadcast history — `/schedule list` shows recently sent ✅ (2026-07-05)
 
 ### Administration
 - Web dashboard
@@ -121,7 +121,7 @@
 ## 🆕 Feature Requests (2026-02-16)
 
 ### FEAT-001: Topic icons — colored circles like MillionPlus bot
-- **Status:** Open
+- **Status:** ✅ Done (2026-07-05) — random `ForumIconColor` passed to `create_forum_topic` for user and custom topics
 - **Description:** Topics should have colored circle icons (like the MillionPlus Support bot screenshot). Currently small squares.
 - **Solution:** Use `icon_custom_emoji_id` when creating topics. Bot can assign random colored emoji icons per user. Also the group itself needs "Topics" mode enabled with proper settings.
 

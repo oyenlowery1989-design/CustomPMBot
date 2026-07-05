@@ -6,6 +6,7 @@ from telegram.error import TelegramError
 
 from handlers.admin import (
     cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast,
+    cmd_users, cmd_search,
 )
 from handlers.topics import cmd_topic, cmd_close, cmd_reopen, cmd_note
 from handlers.tags import cmd_tag
@@ -150,6 +151,12 @@ class TestTopicCommands:
         await cmd_topic(update, make_context(bot, args=["create", "VIP", "Chat"]))
         bot.create_forum_topic.assert_awaited_once()
         assert db_get_custom_topic("vip chat")["topic_id"] == 777
+
+    async def test_create_uses_colored_icon(self, bot):
+        from telegram.constants import ForumIconColor
+        update = admin_update()
+        await cmd_topic(update, make_context(bot, args=["create", "VIP"]))
+        assert bot.create_forum_topic.await_args.kwargs["icon_color"] in set(ForumIconColor)
 
     async def test_create_truncates_long_name(self, bot):
         update = admin_update()
@@ -339,3 +346,113 @@ class TestCanned:
         update = admin_update()
         await cmd_canned(update, make_context(bot, args=["nope"]))
         assert "not found" in update.message.reply_text.await_args.args[0]
+
+
+class TestUsers:
+    def _seed(self):
+        db_upsert_user(make_tg_user(1, "Active", username="act"))
+        db_upsert_user(make_tg_user(2, "Blocked"))
+        db_upsert_user(make_tg_user(3, "Banned"))
+        db_upsert_user(make_tg_user(4, "Paused"))
+        from database.users import db_mark_blocked, db_set_relay_paused
+        db_mark_blocked(2)
+        db_ban(3, "x")
+        db_set_relay_paused(4, True)
+        db_add_tag(1, "vip")
+
+    async def test_all_users_listed_with_flags(self, bot):
+        self._seed()
+        update = admin_update()
+        await cmd_users(update, make_context(bot))
+        text = update.message.reply_text.await_args.args[0]
+        for uid in ("1", "2", "3", "4"):
+            assert f"<code>{uid}</code>" in text
+        assert "🚫blocked" in text
+        assert "📁closed" in text
+
+    async def test_filter_active(self, bot):
+        self._seed()
+        update = admin_update()
+        await cmd_users(update, make_context(bot, args=["active"]))
+        text = update.message.reply_text.await_args.args[0]
+        assert "<code>1</code>" in text and "<code>4</code>" in text
+        assert "<code>2</code>" not in text and "<code>3</code>" not in text
+
+    async def test_filter_banned(self, bot):
+        self._seed()
+        update = admin_update()
+        await cmd_users(update, make_context(bot, args=["banned"]))
+        text = update.message.reply_text.await_args.args[0]
+        assert "<code>3</code>" in text and "<code>1</code>" not in text
+
+    async def test_filter_tag(self, bot):
+        self._seed()
+        update = admin_update()
+        await cmd_users(update, make_context(bot, args=["tag", "vip"]))
+        text = update.message.reply_text.await_args.args[0]
+        assert "<code>1</code>" in text and "<code>2</code>" not in text
+
+    async def test_names_html_escaped(self, bot):
+        db_upsert_user(make_tg_user(1, "<b>Evil</b>"))
+        update = admin_update()
+        await cmd_users(update, make_context(bot))
+        assert "&lt;b&gt;Evil&lt;/b&gt;" in update.message.reply_text.await_args.args[0]
+
+    async def test_no_match(self, bot):
+        update = admin_update()
+        await cmd_users(update, make_context(bot, args=["banned"]))
+        assert "No users match" in update.message.reply_text.await_args.args[0]
+
+    async def test_bad_filter_shows_usage(self, bot):
+        update = admin_update()
+        await cmd_users(update, make_context(bot, args=["frobnicate"]))
+        assert "Usage" in update.message.reply_text.await_args.args[0]
+
+    async def test_non_admin_ignored(self, bot):
+        update = rando_update()
+        await cmd_users(update, make_context(bot))
+        update.message.reply_text.assert_not_awaited()
+
+
+class TestSearch:
+    async def test_finds_matches_case_insensitive(self, bot):
+        db_log_message(1, "in", "text", "I need a REFUND please")
+        db_log_message(2, "in", "text", "unrelated")
+        update = admin_update()
+        await cmd_search(update, make_context(bot, args=["refund"]))
+        text = update.message.reply_text.await_args.args[0]
+        assert "REFUND" in text
+        assert "unrelated" not in text
+
+    async def test_scoped_to_topic_user(self, bot):
+        db_upsert_user(make_tg_user(USER_ID), topic_id=55)
+        db_log_message(USER_ID, "in", "text", "refund me")
+        db_log_message(999, "in", "text", "refund me too")
+        update = admin_update(thread_id=55)
+        await cmd_search(update, make_context(bot, args=["refund"]))
+        text = update.message.reply_text.await_args.args[0]
+        assert f"user {USER_ID}" in text
+        assert "1 hit(s)" in text
+
+    async def test_like_wildcards_treated_literally(self, bot):
+        db_log_message(1, "in", "text", "100% sure")
+        db_log_message(2, "in", "text", "totally sure")
+        update = admin_update()
+        await cmd_search(update, make_context(bot, args=["100%"]))
+        assert "1 hit(s)" in update.message.reply_text.await_args.args[0]
+
+    async def test_snippets_html_escaped(self, bot):
+        db_log_message(1, "in", "text", "look <script>alert(1)</script>")
+        update = admin_update()
+        await cmd_search(update, make_context(bot, args=["script"]))
+        assert "&lt;script&gt;" in update.message.reply_text.await_args.args[0]
+
+    async def test_no_match(self, bot):
+        update = admin_update()
+        await cmd_search(update, make_context(bot, args=["ghost"]))
+        assert "No messages" in update.message.reply_text.await_args.args[0]
+
+    async def test_no_args_usage(self, bot):
+        update = admin_update()
+        await cmd_search(update, make_context(bot))
+        assert "Usage" in update.message.reply_text.await_args.args[0]

@@ -1,7 +1,8 @@
 import html
 import logging
+import random
 from telegram import Update, Bot, User, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode, ChatType
+from telegram.constants import ForumIconColor, ParseMode, ChatType
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from config import ADMIN_GROUP_ID, log, SPAM_BAN_DURATION, ADMIN_IDS
@@ -29,7 +30,9 @@ async def _ensure_topic(bot: Bot, user: User) -> int:
         name = name[:128]
 
     try:
-        topic = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name)
+        # FEAT-001: random colored circle icon per user topic
+        icon = random.choice(list(ForumIconColor))
+        topic = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name, icon_color=icon)
         topic_id = topic.message_thread_id
     except TelegramError: raise
 

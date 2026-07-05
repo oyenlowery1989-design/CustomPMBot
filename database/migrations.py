@@ -3,7 +3,7 @@ import sqlite3
 from database.connection import get_db
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -148,6 +148,22 @@ def _run_migrations(db: sqlite3.Connection) -> None:
             pass
         log.info("Migration v6→v7: relay_paused column added (topic close/reopen state).")
         current = 7
+
+    if current < 8:
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS scheduled_broadcasts (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                text       TEXT NOT NULL,
+                run_at     TEXT NOT NULL,
+                created_by INTEGER,
+                created_at TEXT,
+                sent       INTEGER DEFAULT 0,
+                sent_at    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_sched_due ON scheduled_broadcasts(sent, run_at);
+        """)
+        log.info("Migration v7→v8: scheduled_broadcasts table added.")
+        current = 8
 
     _set_schema_version(db, current)
     db.commit()

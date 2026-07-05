@@ -110,6 +110,27 @@ def db_get_subscribers_by_tag(tag: str) -> List[sqlite3.Row]:
         (tag.upper(),),
     ).fetchall()
 
+def db_list_users(filter_key: str = "all", tag: str = "", limit: int = 50) -> List[sqlite3.Row]:
+    """List users, newest activity first. filter_key: all|active|blocked|banned|paused|tag."""
+    base = "SELECT u.* FROM users u"
+    where = ""
+    params: tuple = ()
+    if filter_key == "active":
+        where = "WHERE u.blocked=0 AND u.user_id NOT IN (SELECT user_id FROM bans)"
+    elif filter_key == "blocked":
+        where = "WHERE u.blocked=1"
+    elif filter_key == "banned":
+        where = "WHERE u.user_id IN (SELECT user_id FROM bans)"
+    elif filter_key == "paused":
+        where = "WHERE u.relay_paused=1"
+    elif filter_key == "tag":
+        base += " JOIN tags t ON u.user_id = t.user_id"
+        where = "WHERE t.tag=?"
+        params = (tag.upper(),)
+    return get_db().execute(
+        f"{base} {where} ORDER BY u.last_seen DESC LIMIT ?", params + (limit,)
+    ).fetchall()
+
 def db_force_broadcast_all(on: bool = True) -> int:
     cur = get_db().execute("UPDATE users SET broadcast_opt=?", (1 if on else 0,))
     get_db().commit()

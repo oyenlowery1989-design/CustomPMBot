@@ -101,6 +101,67 @@ async def cmd_setmsg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db_set_setting(args[0], " ".join(args[1:]))
     await update.message.reply_text(f"✅ Setting <b>{args[0]}</b> updated.", parse_mode=ParseMode.HTML)
 
+async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """/users [active|blocked|banned|paused|tag <TAG>] — list users, newest first."""
+    if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
+    from database.users import db_list_users
+    args = [a.lower() for a in (ctx.args or [])]
+    filter_key, tag = "all", ""
+    if args:
+        if args[0] == "tag":
+            if len(args) < 2:
+                await update.message.reply_text("Usage: /users tag <TAG>")
+                return
+            filter_key, tag = "tag", args[1]
+        elif args[0] in ("active", "blocked", "banned", "paused"):
+            filter_key = args[0]
+        else:
+            await update.message.reply_text("Usage: /users [active|blocked|banned|paused|tag <TAG>]")
+            return
+
+    rows = db_list_users(filter_key, tag)
+    if not rows:
+        await update.message.reply_text("No users match.")
+        return
+    label = f"tag {tag.upper()}" if filter_key == "tag" else filter_key
+    lines = [f"👥 <b>Users ({label})</b> — {len(rows)} shown\n"]
+    for r in rows:
+        name = html.escape(r["first_name"] or "Unknown")
+        uname = f"@{r['username']}" if r["username"] else "no username"
+        flags = []
+        if r["blocked"]: flags.append("🚫blocked")
+        if r["relay_paused"]: flags.append("📁closed")
+        lines.append(f"• <code>{r['user_id']}</code> {name} ({uname})"
+                     + (f" [{', '.join(flags)}]" if flags else ""))
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """/search <query> — search logged messages. Inside a user topic: that user only."""
+    if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
+    if not ctx.args:
+        await update.message.reply_text("Usage: /search <query>")
+        return
+    from database.messages import db_search_messages
+    query = " ".join(ctx.args)
+    tid = update.effective_message.message_thread_id
+    scope_user = None
+    if tid:
+        row = db_get_user_by_topic(tid)
+        if row: scope_user = row["user_id"]
+
+    rows = db_search_messages(query, user_id=scope_user)
+    if not rows:
+        await update.message.reply_text(f"No messages matching “{query}”.")
+        return
+    scope = f"user {scope_user}" if scope_user else "all users"
+    lines = [f"🔎 <b>Search “{html.escape(query)}”</b> ({scope}) — {len(rows)} hit(s)\n"]
+    for m in rows:
+        arrow = "→" if m["direction"] == "in" else "←"
+        ts = m["timestamp"][:16].replace("T", " ")
+        snippet = html.escape(m["text"][:80])
+        lines.append(f"• <code>{m['user_id']}</code> {arrow} {ts}: {snippet}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
 async def cmd_forcebroadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
     if not ctx.args: return

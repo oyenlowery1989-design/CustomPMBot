@@ -64,8 +64,13 @@
 
 ### High Priority
 - [ ] Web dashboard (user list, stats, ban management)
-- [ ] Scheduled broadcasts — `/schedule <time> <message>`
+- [x] Scheduled broadcasts — `/schedule <duration> <message>` + list/cancel/history (2026-07-05)
 - [ ] Inline reply preview — show user's original message when relying
+
+### Done 2026-07-05
+- [x] `/users` — list users with filters (active, blocked, banned, paused, tag)
+- [x] `/search <query>` — search message logs, topic-scoped inside user topics
+- [x] FEAT-001 — random colored circle icons on user + custom topics
 
 ### Medium Priority
 - [ ] Auto-translate incoming messages (detect language)
@@ -87,8 +92,8 @@
 
 - **VPS:** <vps-host> (Ubuntu 24.04)
 - **DB:** SQLite at `/opt/nopmsbot-v2/state.db`
-- **Library:** python-telegram-bot 20.7 + job-queue extra
+- **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 3
+- **Schema version:** 8
 - ⚠️ Bot token needs rotation (was shared in chat)

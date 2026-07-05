@@ -48,6 +48,12 @@ class TestEnsureTopic:
         await _ensure_topic(bot, user)
         assert len(bot.create_forum_topic.await_args.kwargs["name"]) == 128
 
+    async def test_topic_gets_colored_icon(self, bot, tg_user):
+        from telegram.constants import ForumIconColor
+        await _ensure_topic(bot, tg_user)
+        icon = bot.create_forum_topic.await_args.kwargs["icon_color"]
+        assert icon in set(ForumIconColor)
+
 
 class TestHandlePrivateMessage:
     async def test_admin_dms_not_relayed(self, bot):

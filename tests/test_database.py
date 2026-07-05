@@ -49,7 +49,7 @@ class TestMigrations:
             "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         expected = {"settings", "users", "bans", "messages", "tags", "canned",
                     "custom_topics", "topic_bindings", "wallets", "wallet_keys",
-                    "wallet_verifications"}
+                    "wallet_verifications", "scheduled_broadcasts"}
         assert expected <= tables
 
     def test_rerun_is_idempotent(self, fresh_db):
