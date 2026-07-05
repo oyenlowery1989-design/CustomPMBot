@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime state — never commit the production DB
+state.db
+state.db-shm
+state.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets
+.env
+*.env
+!env.example
+
+# OS
+.DS_Store

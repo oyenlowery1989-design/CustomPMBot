@@ -1,0 +1,77 @@
+{
+  "bot_name": "NoPMsBot",
+  "user_commands": {
+    "help_header": "📬 <b>{bot_name} — Command Reference</b>",
+    "help_divider": "━━━━━━━━━━━━━━━━━━━━",
+    "help_user_section": "👤 <b>User Commands</b>",
+    "help_admin_section": "📊 <b>Admin Commands</b>",
+    "cmd_start_desc": "• /start — Main Menu & Buttons",
+    "cmd_help_desc": "• /help — This reference guide",
+    "cmd_settings_desc": "• /settings — Broadcast preferences",
+    "cmd_wallet_desc": "• /wallet — Manage your Stellar wallets",
+    "cmd_cancel_desc": "• /cancel — Abort current action",
+    "welcome_default": "👋 Welcome! Send me a message and I'll forward it to the admin.",
+    "settings_btn": "⚙️ Settings",
+    "help_btn": "📖 Help"
+  },
+  "admin_commands": {
+    "cmd_stats": "• /stats — Full bot & user statistics",
+    "cmd_ban": "• /ban [id] [reason] — Ban user",
+    "cmd_unban": "• /unban [id] — Lift user ban",
+    "cmd_banned": "• /banned — List all active bans",
+    "cmd_topic": "• /topic [create|list|bind] — Topic management",
+    "cmd_tag": "• /tag [label] — Tag user (in topic or by ID)",
+    "cmd_export": "• /export — Export conversation as .txt",
+    "cmd_canned": "• /canned [list|add|del] — Quick responses",
+    "cmd_force": "• /forcebroadcast [on|off] — Global override",
+    "cmd_wallets": "• /wallets — List all registered user wallets",
+    "cmd_close": "• /close — Archive current user topic",
+    "cmd_reopen": "• /reopen — Unarchive user topic",
+    "cmd_note": "• /note [text] — Pin a note in current topic"
+  },
+  "settings": {
+    "header": "⚙️ <b>Settings</b>",
+    "current_status": "Your Current Status: {status_text}",
+    "status_on": "🔔 <b>Subscribed</b>\n<i>(You will receive all broadcasts)</i>",
+    "status_off": "🔕 <b>Unsubscribed</b>\n<i>(You will NOT receive broadcasts)</i>",
+    "btn_turn_on": "🔔 Turn ON Broadcasts",
+    "btn_turn_off": "🔕 Turn OFF Broadcasts",
+    "btn_back": "« Back to Menu"
+  },
+  "wallet": {
+    "no_wallet": "❌ <b>No wallet connected.</b>\n\nConnect your Stellar wallet to unlock advanced features.",
+    "has_wallet": "💳 <b>Your Stellar Wallets</b> ({count}/{max_wallets})",
+    "wallet_item": "{index}. {status_icon} <code>{address}</code> — \"{label}\"",
+    "status_verified": "✅",
+    "status_unverified": "⏳",
+    "btn_add": "➕ Add New Wallet",
+    "btn_verify": "🔐 Verify #{index}",
+    "btn_remove": "🗑 Remove #{index}",
+    "btn_back": "« Back to Menu",
+    "prompt_address": "💳 <b>Add Stellar Wallet</b>\n\nPlease send your Stellar public address (starts with G):",
+    "invalid_address": "❌ Invalid address. Try again or /cancel.",
+    "prompt_label": "✅ <b>Address accepted!</b>\n\nWhat would you like to name this wallet?\n<i>(Examples: Main, Savings, Trading)</i>",
+    "saved": "✅ <b>Wallet saved!</b>\n\nName: {label}\nAddress: <code>{address}</code>",
+    "limit_reached": "❌ <b>Limit reached.</b>\n\nYou can only have {max_wallets} wallets.",
+    "verify_no_wallet": "⚠️ No verification wallet configured by admin.",
+    "verify_method_prompt": "<b>Verification for {label}</b>\n\nHow would you like to verify this wallet?",
+    "verify_memo_btn": "📝 Verify by Memo (send 0.0000001 XLM)",
+    "verify_key_btn": "🔑 Verify by Secret Key (Admin Only)",
+    "verify_memo_instructions": "📝 <b>Memo Verification</b>\n\nPlease send exactly 0.0000001 XLM to:\n<code>{verify_addr}</code>\n\nMemo (TEXT): <code>{challenge}</code>\n\n⏰ <b>Expires in 15 minutes.</b>",
+    "verify_key_prompt": "⚠️ <b>SECURITY WARNING</b>\n\nYou are about to send your secret key. It will be encrypted and stored safely.\n\nSend your secret key or /cancel.",
+    "verify_key_success": "✅ <b>Verified successfully!</b>\nYour secret key is stored encrypted.",
+    "verify_key_fail": "❌ Key does not match wallet address.",
+    "verify_cancel_btn": "❌ Cancel Verification",
+    "verified_memo": "✅ <b>Wallet verified!</b>\n\nYour wallet has been verified via memo payment."
+  },
+  "relay": {
+    "spam_warn": "⚠️ Slow down!",
+    "spam_ban": "🚫 Temporarily banned for spamming.",
+    "closed": "📁 This conversation has been closed by the admins."
+  },
+  "admin_relay": {
+    "new_topic_info": "👤 <b>New conversation</b>\nName: {user_link}\nID: <code>{user_id}</code>\nUsername: @{username}\nTags: {tags}\nFirst seen: {date}",
+    "new_user_event": "🆕 <b>New user</b>: {user_link} — ID: <code>{user_id}</code>",
+    "user_added_wallet": "💳 User added wallet: {label}\n<code>{address}</code>"
+  }
+}
