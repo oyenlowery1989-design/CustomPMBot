@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime, timezone
 
 import httpx
 from stellar_sdk import Server
@@ -11,6 +10,7 @@ from database.wallets import (
     db_delete_verification,
 )
 from database.settings import db_get_setting, db_set_setting
+from utils.helpers import _is_past
 from utils.strings import get_text
 
 _CURSOR_SETTING_KEY = "stellar_watcher_cursor"
@@ -48,13 +48,9 @@ class StellarWatcher:
         # Filter to non-expired, group by challenge. A 6-digit challenge can
         # collide across concurrent verifications, so keep a list per
         # challenge rather than letting one overwrite another.
-        now = datetime.now(timezone.utc)
         active = {}
         for p in pending:
-            expires = datetime.fromisoformat(p["expires_at"])
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
-            if now < expires:
+            if not _is_past(p["expires_at"]):
                 active.setdefault(p["challenge"], []).append(p)
 
         if not active:
@@ -66,14 +62,25 @@ class StellarWatcher:
         # pending verifications forever. Ascending order + a persisted cursor
         # means a watcher restart resumes exactly where it left off; if a
         # backlog exceeds one page, later polls simply keep advancing.
+        #
+        # On the very first run (no cursor stored yet — fresh deploy or an
+        # upgrade from before this cursor existed), there's nothing to page
+        # forward from. Falling back to ascending-from-nothing would scan
+        # the wallet's entire payment history before ever reaching "now",
+        # so instead grab the newest page (like the old fixed-window
+        # behavior), process it normally, then seed the cursor at the
+        # newest record in it — every later poll continues forward from
+        # there.
         cursor = db_get_setting(_CURSOR_SETTING_KEY, "")
         loop = asyncio.get_running_loop()
         try:
             def _fetch():
                 query = self.server.payments().for_account(VERIFY_WALLET_PUBLIC)
                 if cursor:
-                    query = query.cursor(cursor)
-                return query.order(asc=True).limit(_PAGE_SIZE).call()
+                    query = query.cursor(cursor).order(asc=True)
+                else:
+                    query = query.order(desc=True)
+                return query.limit(_PAGE_SIZE).call()
             payments = await loop.run_in_executor(None, _fetch)
         except Exception as e:
             log.error("Horizon payments fetch failed: %s", e)
@@ -82,6 +89,11 @@ class StellarWatcher:
         records = payments.get("_embedded", {}).get("records", [])
         if not records:
             return
+        if not cursor:
+            # Horizon returned newest-first here; reverse to chronological
+            # order so the last record below is the newest one, matching
+            # the ascending-fetch path's cursor semantics.
+            records = list(reversed(records))
 
         # For each payment, fetch its transaction to read the memo field
         async with httpx.AsyncClient(timeout=10) as client:

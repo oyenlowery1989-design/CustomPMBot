@@ -109,8 +109,11 @@ async def cb_wallet_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
             db_delete_wallet(q.from_user.id, wallet["address"])
             await q.answer("Wallet removed")
         else: await q.answer("Wallet not found")
-    except (ValueError, TelegramError) as e:
-        log.warning("cb_wallet_remove failed: %s", e)
+    except Exception as e:
+        # Broad on purpose: db_delete_wallet can now raise (rollback+reraise,
+        # see M5) and this handler must still answer the callback and
+        # refresh the menu below rather than leave the user's client stuck.
+        log.error("cb_wallet_remove failed: %s", e)
         await q.answer("Error")
     await _show_wallet_menu(q.message, q.from_user.id, is_edit=True)
 

@@ -67,6 +67,34 @@ class TestMigrations:
         assert _get_schema_version(fresh_db) == SCHEMA_VERSION
         assert db_get_user(1) is not None
 
+    def test_v10_to_v11_backfills_existing_wallet_keys(self, fresh_db):
+        """SEC-FIX regression: upgrading from the old address-only wallet_keys
+        schema must not silently delete every previously stored secret key."""
+        from services.encryption import encrypt_key
+        addr = "G" + "C" * 55
+        encrypted = encrypt_key("SLEGACYSECRETKEY")
+
+        # Simulate a pre-v11 install: old address-keyed wallet_keys table
+        # holding a key for a wallet that user 42 already verified by key.
+        db_add_wallet(42, addr)
+        db_set_wallet_verified(42, addr, 2)
+        fresh_db.execute("DROP TABLE wallet_keys")
+        fresh_db.execute(
+            "CREATE TABLE wallet_keys (address TEXT PRIMARY KEY, "
+            "encrypted_key TEXT NOT NULL, stored_at TEXT)"
+        )
+        fresh_db.execute(
+            "INSERT INTO wallet_keys (address, encrypted_key, stored_at) VALUES (?,?,?)",
+            (addr, encrypted, "2026-01-01T00:00:00+00:00"),
+        )
+        fresh_db.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('schema_version','10')")
+        fresh_db.commit()
+
+        _run_migrations(fresh_db)
+
+        assert _get_schema_version(fresh_db) == SCHEMA_VERSION
+        assert db_get_key(42, addr) == "SLEGACYSECRETKEY"
+
     def test_relay_paused_column_exists(self, fresh_db):
         cols = {r["name"] for r in fresh_db.execute("PRAGMA table_info(users)").fetchall()}
         assert "relay_paused" in cols

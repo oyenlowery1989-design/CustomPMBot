@@ -8,6 +8,15 @@ from telegram import Message
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def _is_past(iso_timestamp: str) -> bool:
+    """True if an ISO-8601 timestamp is now in the past. Naive timestamps
+    (no tzinfo) are treated as UTC, matching how _now_iso() values without
+    an explicit offset are stored/read elsewhere."""
+    expires = datetime.fromisoformat(iso_timestamp)
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) >= expires
+
 def _parse_duration(s: str) -> Optional[int]:
     m = re.fullmatch(r"(\d+)\s*([mhdw])", s.strip().lower())
     if not m:

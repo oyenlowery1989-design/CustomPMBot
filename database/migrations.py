@@ -202,6 +202,16 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         # pending_key_verifications persists the "awaiting secret key" flow to
         # the DB so a bot restart mid-flow can't drop the user into the
         # standard relay path with a live secret key still in their message.
+        #
+        # The old table has no user_id, so before dropping it we recover the
+        # owning user_id(s) from wallets.verified=2 (verified by secret key)
+        # and carry the encrypted key forward — otherwise every previously
+        # stored key would be silently deleted on upgrade with no way back.
+        try:
+            old_keys = db.execute("SELECT address, encrypted_key, stored_at FROM wallet_keys").fetchall()
+        except sqlite3.OperationalError:
+            old_keys = []  # fresh install: wallet_keys doesn't exist yet
+
         db.executescript("""
             DROP TABLE IF EXISTS wallet_keys;
 
@@ -219,7 +229,31 @@ def _run_migrations(db: sqlite3.Connection) -> None:
                 expires_at TEXT NOT NULL
             );
         """)
-        log.info("Migration v10→v11: wallet_keys keyed by (user_id, address); pending_key_verifications added.")
+
+        backfilled = 0
+        for row in old_keys:
+            owners = db.execute(
+                "SELECT user_id FROM wallets WHERE address=? AND verified=2",
+                (row["address"],),
+            ).fetchall()
+            if len(owners) > 1:
+                log.warning(
+                    "wallet_keys backfill: address %s has %d verified-by-key owners sharing "
+                    "one legacy stored key — copying it to all of them; verify manually.",
+                    row["address"], len(owners),
+                )
+            for owner in owners:
+                db.execute(
+                    "INSERT OR REPLACE INTO wallet_keys (user_id, address, encrypted_key, stored_at) "
+                    "VALUES (?,?,?,?)",
+                    (owner["user_id"], row["address"], row["encrypted_key"], row["stored_at"]),
+                )
+                backfilled += 1
+
+        log.info(
+            "Migration v10→v11: wallet_keys keyed by (user_id, address); pending_key_verifications "
+            "added; backfilled %d of %d legacy key(s).", backfilled, len(old_keys),
+        )
         current = 11
 
     _set_schema_version(db, current)

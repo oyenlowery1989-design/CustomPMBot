@@ -3,7 +3,7 @@ import logging
 from typing import Optional, List
 from database.connection import get_db
 from services.encryption import encrypt_key, decrypt_key
-from utils.helpers import _now_iso
+from utils.helpers import _now_iso, _is_past
 
 log = logging.getLogger("nopmsbot")
 
@@ -80,16 +80,12 @@ def db_set_awaiting_key(user_id: int, address: str) -> None:
 
 def db_get_awaiting_key(user_id: int) -> Optional[str]:
     """Return the address a user is entering a secret key for, or None if absent/expired."""
-    from datetime import datetime, timezone
     row = get_db().execute(
         "SELECT address, expires_at FROM pending_key_verifications WHERE user_id=?", (user_id,)
     ).fetchone()
     if not row:
         return None
-    expires = datetime.fromisoformat(row["expires_at"])
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) >= expires:
+    if _is_past(row["expires_at"]):
         db_clear_awaiting_key(user_id)
         return None
     return row["address"]
@@ -128,15 +124,10 @@ def db_all_wallets() -> List[sqlite3.Row]:
 def cleanup_expired_verifications() -> int:
     """Delete expired wallet_verifications rows. Returns number removed. Run
     periodically — otherwise they accumulate forever with no other cleanup."""
-    from datetime import datetime, timezone
     db = get_db()
-    now = datetime.now(timezone.utc)
     removed = 0
     for row in db.execute("SELECT user_id, address, expires_at FROM wallet_verifications").fetchall():
-        expires = datetime.fromisoformat(row["expires_at"])
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-        if now >= expires:
+        if _is_past(row["expires_at"]):
             db.execute(
                 "DELETE FROM wallet_verifications WHERE user_id=? AND address=?",
                 (row["user_id"], row["address"]),
