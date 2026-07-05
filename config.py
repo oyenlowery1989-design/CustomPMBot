@@ -12,6 +12,9 @@ BROADCAST_TOPIC_NAME = os.environ.get("BROADCAST_TOPIC_NAME", "📢 Broadcast")
 DB_PATH = os.environ.get("DB_PATH", "state.db")
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "15"))
 
+# Health endpoint (disabled unless set)
+HEALTH_PORT = int(os.environ["HEALTH_PORT"]) if os.environ.get("HEALTH_PORT") else None
+
 # Spam Config
 SPAM_WINDOW = 10
 SPAM_MAX_MSGS = 5

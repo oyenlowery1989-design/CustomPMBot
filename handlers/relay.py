@@ -14,6 +14,7 @@ from database.tags import db_get_tags
 from database.wallets import db_add_wallet, db_store_key, db_set_wallet_verified
 from services.spam import _check_spam, _reset_spam
 from services.stellar import verify_secret_key_match
+from stellar_sdk import StrKey
 from utils.helpers import _now_iso, _user_link, _content_type_of
 from utils.media import _forward_to_topic, _relay_to_user
 from utils.events import _send_event
@@ -71,7 +72,8 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     # 1. Address input
     if user.id in _awaiting_wallet_addr and msg.text:
         addr = msg.text.strip()
-        if len(addr) == 56 and addr.startswith("G"):
+        # Full StrKey validation (checksum included), not just length/prefix
+        if StrKey.is_valid_ed25519_public_key(addr):
             _awaiting_wallet_addr.discard(user.id)
             _awaiting_wallet_label[user.id] = addr
             keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text("wallet.btn_back"), callback_data="wallet_view")]])
@@ -85,7 +87,11 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     if user.id in _awaiting_wallet_label and msg.text:
         label = msg.text.strip()[:20]
         addr = _awaiting_wallet_label.pop(user.id)
-        db_add_wallet(user.id, addr, label)
+        if not db_add_wallet(user.id, addr, label):
+            await msg.reply_text(
+                get_text("wallet.duplicate", default="⚠️ That wallet is already saved."),
+                parse_mode=ParseMode.HTML)
+            return
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text("wallet.btn_back"), callback_data="wallet_view")]])
         await msg.reply_text(get_text("wallet.saved", address=addr, label=label), parse_mode=ParseMode.HTML, reply_markup=keyboard)
         # Notify admin

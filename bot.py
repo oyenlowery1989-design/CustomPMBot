@@ -3,10 +3,11 @@ import atexit
 import logging
 from telegram import Update, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from config import BOT_TOKEN, ADMIN_IDS, ADMIN_GROUP_ID, log
+from config import BOT_TOKEN, ADMIN_IDS, ADMIN_GROUP_ID, HEALTH_PORT, log
 from database.connection import get_db, close_db
 from database.bans import cleanup_expired_bans
 from database.migrations import _run_migrations
+from services.health import start_health_server
 from services.watcher import StellarWatcher
 from handlers.user import cmd_start, cmd_help, cmd_settings
 from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search, cmd_analytics
@@ -64,6 +65,12 @@ async def post_init(app: Application) -> None:
         asyncio.create_task(_ban_cleanup_loop(), name="ban-cleanup"),
         asyncio.create_task(_scheduled_broadcast_loop(app), name="scheduled-broadcasts"),
     ]
+
+    if HEALTH_PORT:
+        try:
+            app.bot_data["health_server"] = await start_health_server(HEALTH_PORT)
+        except OSError as e:
+            log.error("Could not start health endpoint on port %s: %s", HEALTH_PORT, e)
     
     # 1. Set Default Commands (for everyone)
     user_cmds = [
@@ -107,6 +114,9 @@ async def post_shutdown(app: Application) -> None:
         watcher.stop()
     for task in app.bot_data.get("bg_tasks", []):
         task.cancel()
+    health = app.bot_data.get("health_server")
+    if health:
+        health.close()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.error("Unhandled exception: %s", context.error, exc_info=context.error)

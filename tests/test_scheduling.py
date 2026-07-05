@@ -135,6 +135,19 @@ class TestProcessDue:
         assert db_get_due_broadcasts() == []
         assert await process_due_broadcasts(bot) == 0
 
+    async def test_scheduled_tag_broadcast_targets_and_strips(self, bot):
+        from database.tags import db_add_tag
+        db_upsert_user(make_tg_user(1))
+        db_upsert_user(make_tg_user(2))
+        db_add_tag(1, "vip")
+        db_schedule_broadcast("@VIP\nexclusive drop", _at(-1), ADMIN_ID)
+
+        await process_due_broadcasts(bot)
+        user_sends = [c for c in bot.send_message.await_args_list
+                      if c.kwargs.get("chat_id") in (1, 2)]
+        assert [c.kwargs["chat_id"] for c in user_sends] == [1]
+        assert user_sends[0].kwargs["text"] == "exclusive drop"  # tag line stripped
+
     async def test_future_broadcast_not_sent(self, bot, tg_user):
         db_upsert_user(tg_user)
         db_schedule_broadcast("not yet", _at(10), ADMIN_ID)

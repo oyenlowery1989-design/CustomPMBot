@@ -118,6 +118,9 @@
 | 2026-07-04 | Zero test coverage | 234-test pytest suite in `tests/` covering every feature (DB, services, utils, all handlers) |
 | 2026-07-05 | Tagged broadcasts (`@TAG` first line) lost in modular rewrite — `db_get_subscribers_by_tag` imported but never called | `_parse_tag_target`/`_resolve_recipients` restored in broadcast path |
 | 2026-07-05 | Canned media (ISSUE-007) | `content_type`/`file_id` columns (v10), reply-to-media `/canned add` |
+| 2026-07-05 | Scheduled broadcasts ignored `@TAG` targeting (live path respected it) | `_parse_tag_text` shared by both; scheduled sends strip the tag line |
+| 2026-07-05 | Duplicate wallet add claimed "saved" | `db_add_wallet` return checked; user told wallet already exists |
+| 2026-07-05 | Wallet address validation was length/prefix only | `StrKey.is_valid_ed25519_public_key` (checksum) |
 
 ---
 

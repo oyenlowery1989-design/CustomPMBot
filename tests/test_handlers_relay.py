@@ -115,11 +115,12 @@ class TestHandlePrivateMessage:
 
 class TestWalletInputFlow:
     async def test_valid_address_advances_to_label(self, bot, tg_user):
+        addr = Keypair.random().public_key
         wallet_mod._awaiting_wallet_addr.add(tg_user.id)
-        msg = make_message(VALID_ADDR)
+        msg = make_message(addr)
         await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
         assert tg_user.id not in wallet_mod._awaiting_wallet_addr
-        assert wallet_mod._awaiting_wallet_label[tg_user.id] == VALID_ADDR
+        assert wallet_mod._awaiting_wallet_label[tg_user.id] == addr
         msg.reply_text.assert_awaited_once()
         msg.forward.assert_not_awaited()  # never relayed to admins
 
@@ -129,6 +130,23 @@ class TestWalletInputFlow:
         await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
         assert tg_user.id in wallet_mod._awaiting_wallet_addr
         msg.reply_text.assert_awaited_once()
+
+    async def test_bad_checksum_address_rejected(self, bot, tg_user):
+        """Right length, right prefix, garbage checksum — StrKey must catch it."""
+        wallet_mod._awaiting_wallet_addr.add(tg_user.id)
+        msg = make_message("G" + "A" * 55)
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+        assert tg_user.id in wallet_mod._awaiting_wallet_addr
+
+    async def test_duplicate_wallet_reported_not_saved_twice(self, bot, tg_user):
+        from database.wallets import db_add_wallet, db_get_wallet_count
+        db_add_wallet(tg_user.id, VALID_ADDR, "Old")
+        wallet_mod._awaiting_wallet_label[tg_user.id] = VALID_ADDR
+        msg = make_message("New Label")
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+        assert db_get_wallet_count(tg_user.id) == 1
+        assert "already" in msg.reply_text.await_args.args[0]
+        bot.create_forum_topic.assert_not_awaited()  # no admin notification
 
     async def test_label_saves_wallet_and_notifies_admins(self, bot, tg_user):
         wallet_mod._awaiting_wallet_label[tg_user.id] = VALID_ADDR

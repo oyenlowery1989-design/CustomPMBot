@@ -24,14 +24,16 @@ from utils.media import _relay_to_user
 _broadcast_topic_id = None
 _pending_broadcasts = {}  # message_id → Message awaiting admin confirmation
 
-def _parse_tag_target(msg: Message) -> Optional[str]:
-    """'@VIP' alone on the first line targets that tag's subscribers.
-    The tag line stays in the delivered message (acts as a header)."""
-    text = msg.text or msg.caption or ""
+def _parse_tag_text(text: str) -> Optional[str]:
     first = text.split("\n", 1)[0].strip()
     if first.startswith("@") and len(first) > 1 and " " not in first:
         return first[1:]
     return None
+
+def _parse_tag_target(msg: Message) -> Optional[str]:
+    """'@VIP' alone on the first line targets that tag's subscribers.
+    The tag line stays in the delivered message (acts as a header)."""
+    return _parse_tag_text(msg.text or msg.caption or "")
 
 def _resolve_recipients(msg: Message):
     """Returns (recipients, label, opted_out_count) for a broadcast message."""
@@ -203,8 +205,18 @@ async def process_due_broadcasts(bot: Bot) -> int:
     due = db_get_due_broadcasts()
     for b in due:
         db_mark_broadcast_sent(b["id"])
-        recipients = db_get_all_subscribers()
-        await _broadcast_text(bot, b["text"], recipients, label=f"scheduled #{b['id']}")
+        # @TAG on the first line targets that tag, same as live broadcasts;
+        # for scheduled text we can strip the tag line before sending
+        tag = _parse_tag_text(b["text"])
+        if tag:
+            recipients = db_get_subscribers_by_tag(tag)
+            body = b["text"].split("\n", 1)[1] if "\n" in b["text"] else b["text"]
+            label = f"scheduled #{b['id']} (tag {tag.upper()})"
+        else:
+            recipients = db_get_all_subscribers()
+            body = b["text"]
+            label = f"scheduled #{b['id']}"
+        await _broadcast_text(bot, body, recipients, label=label)
     return len(due)
 
 async def cmd_schedule(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

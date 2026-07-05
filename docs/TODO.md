@@ -87,7 +87,7 @@
 ### Low Priority
 - [ ] Multi-language welcome messages
 - [ ] Prometheus metrics
-- [ ] Health check endpoint
+- [x] Health check endpoint — `HEALTH_PORT` env, JSON status/users/schema/uptime (2026-07-05)
 - [x] Unit tests (2026-07-04 — 234 tests in `tests/`, run: `.venv/bin/python -m pytest`)
 - [x] Graceful shutdown hook (atexit close_db + post_shutdown cancels background tasks)
 
