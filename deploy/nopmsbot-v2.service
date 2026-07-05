@@ -1,0 +1,24 @@
+[Unit]
+Description=NoPMsBot — Telegram support-desk bot (v2.3)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nopmsbot
+Group=nopmsbot
+WorkingDirectory=/opt/nopmsbot-v2
+EnvironmentFile=/etc/nopmsbot-v2.env
+ExecStart=/opt/nopmsbot-v2/.venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/nopmsbot-v2
+
+[Install]
+WantedBy=multi-user.target
