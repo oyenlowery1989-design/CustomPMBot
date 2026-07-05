@@ -12,8 +12,10 @@ BROADCAST_TOPIC_NAME = os.environ.get("BROADCAST_TOPIC_NAME", "📢 Broadcast")
 DB_PATH = os.environ.get("DB_PATH", "state.db")
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", "15"))
 
-# Health endpoint (disabled unless set)
+# Health endpoint (disabled unless HEALTH_PORT is set). Binds to localhost
+# only by default — set HEALTH_HOST=0.0.0.0 to expose it beyond this host.
 HEALTH_PORT = int(os.environ["HEALTH_PORT"]) if os.environ.get("HEALTH_PORT") else None
+HEALTH_HOST = os.environ.get("HEALTH_HOST", "127.0.0.1")
 
 # Spam Config
 SPAM_WINDOW = 10
@@ -23,7 +25,6 @@ SPAM_BAN_DURATION = 86400
 
 # Stellar Config
 VERIFY_WALLET_PUBLIC = os.environ.get("VERIFY_WALLET_PUBLIC")
-VERIFY_WALLET_SECRET = os.environ.get("VERIFY_WALLET_SECRET")
 WALLET_ENCRYPTION_KEY = os.environ.get("WALLET_ENCRYPTION_KEY")
 
 # Logging

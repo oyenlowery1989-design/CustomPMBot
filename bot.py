@@ -1,11 +1,11 @@
 import asyncio
 import atexit
-import logging
 from telegram import Update, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from config import BOT_TOKEN, ADMIN_IDS, ADMIN_GROUP_ID, HEALTH_PORT, log
+from config import BOT_TOKEN, ADMIN_GROUP_ID, HEALTH_PORT, HEALTH_HOST, WALLET_ENCRYPTION_KEY, log
 from database.connection import get_db, close_db
 from database.bans import cleanup_expired_bans
+from database.wallets import cleanup_expired_verifications
 from database.migrations import _run_migrations
 from services.health import start_health_server
 from services.watcher import StellarWatcher
@@ -53,6 +53,18 @@ async def _ban_cleanup_loop() -> None:
             log.error("Expired-ban cleanup failed: %s", e)
         await asyncio.sleep(BAN_CLEANUP_INTERVAL)
 
+async def _wallet_verification_cleanup_loop() -> None:
+    """Periodically purge expired wallet_verifications rows — they otherwise
+    accumulate forever since nothing else deletes them."""
+    while True:
+        try:
+            removed = cleanup_expired_verifications()
+            if removed:
+                log.info("Removed %d expired wallet verification(s)", removed)
+        except Exception as e:
+            log.error("Expired-verification cleanup failed: %s", e)
+        await asyncio.sleep(BAN_CLEANUP_INTERVAL)
+
 async def post_init(app: Application) -> None:
     load_texts()
     await _find_broadcast_topic(app.bot)
@@ -63,14 +75,15 @@ async def post_init(app: Application) -> None:
     app.bot_data["bg_tasks"] = [
         asyncio.create_task(watcher.start(), name="stellar-watcher"),
         asyncio.create_task(_ban_cleanup_loop(), name="ban-cleanup"),
+        asyncio.create_task(_wallet_verification_cleanup_loop(), name="wallet-verification-cleanup"),
         asyncio.create_task(_scheduled_broadcast_loop(app), name="scheduled-broadcasts"),
     ]
 
     if HEALTH_PORT:
         try:
-            app.bot_data["health_server"] = await start_health_server(HEALTH_PORT)
+            app.bot_data["health_server"] = await start_health_server(HEALTH_PORT, HEALTH_HOST)
         except OSError as e:
-            log.error("Could not start health endpoint on port %s: %s", HEALTH_PORT, e)
+            log.error("Could not start health endpoint on %s:%s: %s", HEALTH_HOST, HEALTH_PORT, e)
     
     # 1. Set Default Commands (for everyone)
     user_cmds = [
@@ -113,18 +126,28 @@ async def post_shutdown(app: Application) -> None:
     watcher = app.bot_data.get("watcher")
     if watcher:
         watcher.stop()
-    for task in app.bot_data.get("bg_tasks", []):
+    tasks = app.bot_data.get("bg_tasks", [])
+    for task in tasks:
         task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     health = app.bot_data.get("health_server")
     if health:
         health.close()
+        await health.wait_closed()
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     log.error("Unhandled exception: %s", context.error, exc_info=context.error)
 
 def main() -> None:
     log.info("Starting CustomPMBot (v2.3 Next Gen)...")
-    
+
+    # Fail fast on a malformed WALLET_ENCRYPTION_KEY — otherwise the error
+    # only surfaces the first time a user tries to verify a wallet by key.
+    if WALLET_ENCRYPTION_KEY:
+        from services.encryption import get_cipher
+        get_cipher()
+
     # Init DB
     db = get_db()
     _run_migrations(db)

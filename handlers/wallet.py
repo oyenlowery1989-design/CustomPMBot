@@ -1,10 +1,9 @@
 import html
 import random
 import string
-import logging
-from typing import Optional, List
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatType
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from config import ADMIN_IDS, VERIFY_WALLET_PUBLIC, log, ADMIN_GROUP_ID
 from database.users import db_get_user, db_set_broadcast_opt, db_upsert_user
@@ -14,17 +13,12 @@ from database.wallets import (
     db_get_wallet_count, db_create_verification, db_all_wallets,
     db_get_wallet_by_id, db_set_awaiting_key, db_clear_awaiting_key
 )
-from utils.helpers import _is_admin
+from utils.helpers import _is_admin, _user_link
 from utils.strings import get_text
-
-log = logging.getLogger("nopmsbot")
 
 # In-memory state
 _awaiting_wallet_addr = set()
 _awaiting_wallet_label = {}
-
-def _user_link(user_id: int, name: str) -> str:
-    return f'<a href="tg://user?id={user_id}">{html.escape(name)}</a>'
 
 async def cmd_wallet(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or update.effective_chat.type != ChatType.PRIVATE: return
@@ -115,7 +109,9 @@ async def cb_wallet_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
             db_delete_wallet(q.from_user.id, wallet["address"])
             await q.answer("Wallet removed")
         else: await q.answer("Wallet not found")
-    except: await q.answer("Error")
+    except (ValueError, TelegramError) as e:
+        log.warning("cb_wallet_remove failed: %s", e)
+        await q.answer("Error")
     await _show_wallet_menu(q.message, q.from_user.id, is_edit=True)
 
 async def cb_wallet_verify(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -134,8 +130,9 @@ async def cb_wallet_verify(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
             [InlineKeyboardButton(get_text("wallet.verify_key_btn"), callback_data=f"v_k_{w_id}")],
             [InlineKeyboardButton(get_text("wallet.btn_back"), callback_data="wallet_view")]
         ])
-        await q.edit_message_text(get_text("wallet.verify_method_prompt", label=wallet["label"]), parse_mode=ParseMode.HTML, reply_markup=keyboard)
-    except: pass
+        await q.edit_message_text(get_text("wallet.verify_method_prompt", label=html.escape(wallet["label"])), parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except (ValueError, TelegramError) as e:
+        log.warning("cb_wallet_verify failed: %s", e)
 
 async def cb_verify_memo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -150,7 +147,8 @@ async def cb_verify_memo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         text = get_text("wallet.verify_memo_instructions", verify_addr=VERIFY_WALLET_PUBLIC, challenge=challenge)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text("wallet.verify_cancel_btn"), callback_data="wallet_view")]])
         await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
-    except: pass
+    except (ValueError, TelegramError) as e:
+        log.warning("cb_verify_memo failed: %s", e)
 
 async def cb_verify_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -162,7 +160,8 @@ async def cb_verify_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not wallet or wallet["user_id"] != q.from_user.id: return
         db_set_awaiting_key(q.from_user.id, wallet["address"])
         await q.edit_message_text(get_text("wallet.verify_key_prompt"), parse_mode=ParseMode.HTML)
-    except: pass
+    except (ValueError, TelegramError) as e:
+        log.warning("cb_verify_key failed: %s", e)
 
 async def cb_settings(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query

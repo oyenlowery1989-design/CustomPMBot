@@ -15,7 +15,6 @@ def get_db() -> sqlite3.Connection:
             _db = sqlite3.connect(DB_PATH, check_same_thread=False)
             _db.row_factory = sqlite3.Row
             _db.execute("PRAGMA journal_mode=WAL")
-            _db.execute("PRAGMA foreign_keys=ON")
     return _db
 
 def close_db() -> None:

@@ -1,6 +1,4 @@
 import asyncio
-import logging
-import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Tuple

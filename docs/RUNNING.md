@@ -44,7 +44,6 @@ Optional — Stellar wallet verification:
 
 export WALLET_ENCRYPTION_KEY="<generated key>"
 export VERIFY_WALLET_PUBLIC="G...your verification wallet"
-export VERIFY_WALLET_SECRET="S...its secret key"
 ```
 
 Optional — ops:

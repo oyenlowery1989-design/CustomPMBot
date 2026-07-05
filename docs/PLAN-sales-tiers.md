@@ -2,6 +2,9 @@
 
 **Last updated:** 2026-02-16
 
+> **Superseded — not implemented.** Scope was cut down; see `docs/PLAN-v2.2.md`
+> and `docs/TODO.md` for the current roadmap. Kept for historical reference.
+
 ---
 
 ## Overview

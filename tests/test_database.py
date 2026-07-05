@@ -13,7 +13,7 @@ from database.users import (
 from database.messages import db_log_message, db_export_messages
 from database.tags import db_add_tag, db_remove_tag, db_get_tags
 from database.bans import (
-    db_is_banned, db_ban, db_unban, db_get_banned, db_get_expired_bans,
+    db_is_banned, db_ban, db_unban, db_get_banned,
     cleanup_expired_bans,
 )
 from database.settings import db_set_setting, db_get_setting
@@ -250,13 +250,6 @@ class TestBans:
         assert len(rows) == 1
         assert rows[0]["first_name"] == "Bob"
         assert rows[0]["reason"] == "reason1"
-
-    def test_get_expired_bans(self):
-        db_ban(1, "old", expires_at=_past())
-        db_ban(2, "fresh", expires_at=_future())
-        db_ban(3, "perm")
-        expired = {r["user_id"] for r in db_get_expired_bans()}
-        assert expired == {1}
 
     def test_cleanup_expired_bans(self):
         db_ban(1, "old", expires_at=_past())

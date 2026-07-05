@@ -1,6 +1,5 @@
 import logging
 import sqlite3
-from database.connection import get_db
 
 log = logging.getLogger("nopmsbot")
 SCHEMA_VERSION = 11
@@ -81,8 +80,10 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         current = 2
 
     if current < 3:
-        try: db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0")
-        except: pass
+        try:
+            db.execute("ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         current = 3
 
     if current < 4:

@@ -44,7 +44,7 @@ Copy `env.example`, fill in:
 | `DB_PATH` | — | SQLite file (default `state.db`) |
 | `BROADCAST_TOPIC_NAME` | — | name of the broadcast topic (default `📢 Broadcast`) |
 | `MAX_CONCURRENT` | — | parallel sends during broadcast (default 15) |
-| `VERIFY_WALLET_PUBLIC` / `VERIFY_WALLET_SECRET` | for wallet verify | Stellar wallet that receives verification memo payments |
+| `VERIFY_WALLET_PUBLIC` | for wallet verify | Stellar wallet that receives verification memo payments |
 | `WALLET_ENCRYPTION_KEY` | for wallet verify | Fernet key: `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `HEALTH_PORT` | — | HTTP health endpoint port (disabled if unset) |
 

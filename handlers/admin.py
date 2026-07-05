@@ -3,11 +3,10 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from config import ADMIN_GROUP_ID, log, ADMIN_IDS
-from database.users import db_get_user, db_get_user_by_topic
+from config import ADMIN_IDS
+from database.users import db_get_user_by_topic
 from database.bans import db_ban, db_unban, db_get_banned
-from utils.helpers import _is_admin, _now_iso
-from datetime import datetime, timedelta, timezone
+from utils.helpers import _is_admin
 
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return

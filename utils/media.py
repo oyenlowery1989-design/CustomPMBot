@@ -1,4 +1,3 @@
-import logging
 from typing import Optional
 from telegram import Bot, Message
 from telegram.error import Forbidden, TelegramError

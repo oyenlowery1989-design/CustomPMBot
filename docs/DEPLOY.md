@@ -27,8 +27,8 @@ HEALTH_PORT=8080
 ```
 
 Required: `BOT_TOKEN`, `OWNER_ID`, `ADMIN_IDS`, `ADMIN_GROUP_ID`.
-For wallet verification: `VERIFY_WALLET_PUBLIC`, `VERIFY_WALLET_SECRET`,
-`WALLET_ENCRYPTION_KEY`. Set `DB_PATH=/opt/nopmsbot-v2/state.db`.
+For wallet verification: `VERIFY_WALLET_PUBLIC`, `WALLET_ENCRYPTION_KEY`.
+Set `DB_PATH=/opt/nopmsbot-v2/state.db`.
 
 ## 2. Deploy
 

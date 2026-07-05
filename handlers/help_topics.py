@@ -84,7 +84,11 @@ HELP_TOPICS = {
                              "/autoreply list, /autoreply del <keyword>."),
     "topic": dict(admin=True, cat="Organization", summary="Custom topics",
                   detail="/topic create <name> — new forum topic (random colored icon).\n"
-                         "/topic list — all custom topics."),
+                         "/topic list — all custom topics.\n"
+                         "/topic bind <event|command> <key> <topic name> — route an event "
+                         "(e.g. new_user) or command's output into a custom topic.\n"
+                         "/topic unbind <event|command> <key> — remove a binding.\n"
+                         "/topic bindings — list all active bindings."),
     "wallets": dict(admin=True, cat="Organization", summary="All registered wallets",
                     detail="/wallets — every user wallet with label and owner id."),
 

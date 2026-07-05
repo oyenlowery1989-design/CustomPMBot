@@ -1,8 +1,7 @@
 import html
-import logging
 import random
 from telegram import Update, Bot, User, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ForumIconColor, ParseMode, ChatType
+from telegram.constants import ForumIconColor, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from config import ADMIN_GROUP_ID, log, SPAM_BAN_DURATION, ADMIN_IDS
@@ -15,7 +14,7 @@ from database.wallets import (
     db_add_wallet, db_store_key, db_set_wallet_verified,
     db_get_awaiting_key, db_clear_awaiting_key,
 )
-from services.spam import _check_spam, _reset_spam
+from services.spam import _check_spam
 from services.stellar import verify_secret_key_match
 from stellar_sdk import StrKey
 from utils.helpers import _now_iso, _user_link, _content_type_of
@@ -39,7 +38,9 @@ async def _ensure_topic(bot: Bot, user: User) -> int:
         icon = random.choice(list(ForumIconColor))
         topic = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name, icon_color=icon)
         topic_id = topic.message_thread_id
-    except TelegramError: raise
+    except TelegramError as e:
+        log.error("Failed to create forum topic for user %s: %s", user.id, e)
+        raise
 
     db_upsert_user(user, topic_id=topic_id)
     tags_list = db_get_tags(user.id)
@@ -95,11 +96,12 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
                 get_text("wallet.duplicate", default="⚠️ That wallet is already saved."),
                 parse_mode=ParseMode.HTML)
             return
+        safe_label = html.escape(label)
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text("wallet.btn_back"), callback_data="wallet_view")]])
-        await msg.reply_text(get_text("wallet.saved", address=addr, label=label), parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        await msg.reply_text(get_text("wallet.saved", address=addr, label=safe_label), parse_mode=ParseMode.HTML, reply_markup=keyboard)
         # Notify admin
         topic_id = await _ensure_topic(ctx.bot, user)
-        admin_notif = get_text("admin_relay.user_added_wallet", label=label, address=addr)
+        admin_notif = get_text("admin_relay.user_added_wallet", label=safe_label, address=addr)
         await ctx.bot.send_message(chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id, text=admin_notif, parse_mode=ParseMode.HTML)
         return
 

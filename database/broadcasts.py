@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from typing import List, Optional
+from typing import List
 from database.connection import get_db
 from utils.helpers import _now_iso
 

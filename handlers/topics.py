@@ -1,12 +1,13 @@
 import html
 import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.constants import ForumIconColor, ParseMode
 from telegram.ext import ContextTypes
 from config import ADMIN_GROUP_ID, log, ADMIN_IDS
 from database.users import db_get_user_by_topic, db_set_relay_paused
 from database.topics import (
-    db_list_custom_topics, db_create_custom_topic
+    db_list_custom_topics, db_create_custom_topic, db_get_custom_topic,
+    db_bind_topic, db_unbind_topic, db_list_bindings,
 )
 from utils.helpers import _is_admin
 
@@ -20,7 +21,14 @@ async def cmd_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
     args = ctx.args or []
     if not args:
-        await update.message.reply_text("🗂 <b>Topic Manager</b>: /topic [create|list] <name>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            "🗂 <b>Topic Manager</b>:\n"
+            "/topic create <name>\n"
+            "/topic list\n"
+            "/topic bind <event|command> <key> <topic name>\n"
+            "/topic unbind <event|command> <key>\n"
+            "/topic bindings",
+            parse_mode=ParseMode.HTML)
         return
     subcmd = args[0].lower()
     if subcmd == "create" and len(args) >= 2:
@@ -39,6 +47,33 @@ async def cmd_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         topics = db_list_custom_topics()
         text = "\n".join([f"• {t['name']} (ID: {t['topic_id']})" for t in topics]) if topics else "No custom topics."
         await update.message.reply_text(f"🗂 <b>Custom Topics</b>\n\n{text}", parse_mode=ParseMode.HTML)
+    elif subcmd == "bind" and len(args) >= 4:
+        bind_type, bind_key = args[1].lower(), args[2].lower()
+        topic_name = " ".join(args[3:]).lower()
+        if bind_type not in ("event", "command"):
+            await update.message.reply_text("⚠️ Bind type must be 'event' or 'command'.")
+            return
+        if not db_get_custom_topic(topic_name):
+            await update.message.reply_text(
+                f"⚠️ No custom topic named '{html.escape(topic_name)}'. Create it first with /topic create.",
+                parse_mode=ParseMode.HTML)
+            return
+        db_bind_topic(bind_type, bind_key, topic_name)
+        await update.message.reply_text(
+            f"✅ Bound {bind_type} '{html.escape(bind_key)}' → topic '{html.escape(topic_name)}'.",
+            parse_mode=ParseMode.HTML)
+    elif subcmd == "unbind" and len(args) >= 3:
+        bind_type, bind_key = args[1].lower(), args[2].lower()
+        if db_unbind_topic(bind_type, bind_key):
+            await update.message.reply_text(f"✅ Unbound {bind_type} '{html.escape(bind_key)}'.", parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(f"⚠️ No binding found for {bind_type} '{html.escape(bind_key)}'.", parse_mode=ParseMode.HTML)
+    elif subcmd == "bindings":
+        bindings = db_list_bindings()
+        text = "\n".join(
+            f"• {b['bind_type']}:{b['bind_key']} → topic_id {b['topic_id']}" for b in bindings
+        ) if bindings else "No bindings."
+        await update.message.reply_text(f"🔗 <b>Topic Bindings</b>\n\n{text}", parse_mode=ParseMode.HTML)
 
 async def cmd_close(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return

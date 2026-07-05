@@ -1,5 +1,4 @@
-import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 from stellar_sdk import Server, Keypair
 from config import log
 
@@ -24,20 +23,3 @@ def verify_secret_key_match(public_address: str, secret_key: str) -> bool:
     except Exception:
         return False
 
-async def check_recent_payments(verification_address: str, memo_code: str) -> bool:
-    """
-    Check if a specific payment with memo exists on the Stellar network.
-    Usually used by the background watcher.
-    """
-    try:
-        server = Server(HORIZON_URL)
-        # We check the last 10 payments to the verification wallet
-        payments = server.payments().for_account(verification_address).order(desc=True).limit(10).call()
-        for p in payments.get("_embedded", {}).get("records", []):
-            # Check if it's a payment with the correct memo
-            # (Requires additional tx detail call usually, or streaming)
-            pass
-        return False
-    except Exception as e:
-        log.error("Stellar payment check failed: %s", e)
-        return False

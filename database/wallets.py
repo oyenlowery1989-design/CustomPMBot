@@ -29,10 +29,14 @@ def db_get_user_wallets(user_id: int) -> List[sqlite3.Row]:
 def db_delete_wallet(user_id: int, address: str) -> bool:
     """Delete a specific wallet for a user."""
     db = get_db()
-    cur = db.execute("DELETE FROM wallets WHERE user_id=? AND address=?", (user_id, address))
-    # Also delete this user's own key for it, if any (never another user's)
-    db.execute("DELETE FROM wallet_keys WHERE user_id=? AND address=?", (user_id, address))
-    db.commit()
+    try:
+        cur = db.execute("DELETE FROM wallets WHERE user_id=? AND address=?", (user_id, address))
+        # Also delete this user's own key for it, if any (never another user's)
+        db.execute("DELETE FROM wallet_keys WHERE user_id=? AND address=?", (user_id, address))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return cur.rowcount > 0
 
 def db_set_wallet_verified(user_id: int, address: str, method: int) -> None:
@@ -120,3 +124,24 @@ def db_delete_verification(user_id: int, address: str) -> None:
 
 def db_all_wallets() -> List[sqlite3.Row]:
     return get_db().execute("SELECT * FROM wallets ORDER BY added_at DESC").fetchall()
+
+def cleanup_expired_verifications() -> int:
+    """Delete expired wallet_verifications rows. Returns number removed. Run
+    periodically — otherwise they accumulate forever with no other cleanup."""
+    from datetime import datetime, timezone
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    removed = 0
+    for row in db.execute("SELECT user_id, address, expires_at FROM wallet_verifications").fetchall():
+        expires = datetime.fromisoformat(row["expires_at"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if now >= expires:
+            db.execute(
+                "DELETE FROM wallet_verifications WHERE user_id=? AND address=?",
+                (row["user_id"], row["address"]),
+            )
+            removed += 1
+    if removed:
+        db.commit()
+    return removed

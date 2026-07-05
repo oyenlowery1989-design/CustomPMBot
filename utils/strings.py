@@ -12,11 +12,7 @@ def load_texts():
     # Look for branding/texts.json relative to this file's directory
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(base_dir, "branding", "texts.json")
-    
-    if not os.path.exists(path):
-        # Fallback to absolute paths if local fails
-        path = "/opt/nopmsbot-v2/branding/texts.json"
-    
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             _texts_cache = json.load(f)

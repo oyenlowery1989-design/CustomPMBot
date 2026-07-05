@@ -1,4 +1,3 @@
-import logging
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from config import ADMIN_GROUP_ID, log

@@ -1,9 +1,7 @@
-import base64
-import logging
 from cryptography.fernet import Fernet
 from config import WALLET_ENCRYPTION_KEY, log
 
-# We use Fernet for AES-256-CBC encryption
+# Fernet: AES-128-CBC encryption + HMAC-SHA256 authentication
 _cipher = None
 
 def get_cipher():

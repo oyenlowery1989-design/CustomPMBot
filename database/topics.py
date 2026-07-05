@@ -15,9 +15,13 @@ def db_create_custom_topic(name: str, topic_id: int, description: str = "") -> N
 
 def db_delete_custom_topic(name: str) -> bool:
     db = get_db()
-    db.execute("DELETE FROM topic_bindings WHERE topic_name=?", (name.lower(),))
-    cur = db.execute("DELETE FROM custom_topics WHERE name=?", (name.lower(),))
-    db.commit()
+    try:
+        db.execute("DELETE FROM topic_bindings WHERE topic_name=?", (name.lower(),))
+        cur = db.execute("DELETE FROM custom_topics WHERE name=?", (name.lower(),))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return cur.rowcount > 0
 
 def db_get_custom_topic(name: str) -> Optional[sqlite3.Row]:

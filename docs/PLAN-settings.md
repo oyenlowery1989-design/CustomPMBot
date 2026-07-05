@@ -2,6 +2,13 @@
 
 **Last updated:** 2026-02-16
 
+> **Superseded — not implemented.** Describes a settings dashboard that was
+> never built; the live settings surface is the `/setmsg` command plus the
+> single broadcast toggle in `handlers/user.py`. See `docs/PLAN-v2.2.md` and
+> `docs/TODO.md` for the current roadmap. Kept for historical reference. Note
+> it also still references `VERIFY_WALLET_SECRET`, which was removed as
+> dead config (never read anywhere in the codebase).
+
 ---
 
 ## Command: `/settings` (in admin DM or group)

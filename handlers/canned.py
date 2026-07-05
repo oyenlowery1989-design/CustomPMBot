@@ -1,5 +1,4 @@
 import html
-import io
 import sqlite3
 from telegram import Bot, Update
 from telegram.constants import ParseMode

@@ -35,12 +35,6 @@ def db_unban(user_id: int) -> bool:
 def db_get_banned() -> List[sqlite3.Row]:
     return get_db().execute("SELECT b.*, u.first_name, u.username FROM bans b LEFT JOIN users u ON b.user_id=u.user_id").fetchall()
 
-def db_get_expired_bans() -> List[sqlite3.Row]:
-    now = _now_iso()
-    return get_db().execute(
-        "SELECT * FROM bans WHERE expires_at IS NOT NULL AND expires_at <= ?", (now,)
-    ).fetchall()
-
 def cleanup_expired_bans() -> int:
     """Delete all expired bans. Returns number removed. Run periodically —
     db_is_banned only cleans lazily when that user next messages, so expired

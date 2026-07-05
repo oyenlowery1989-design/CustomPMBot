@@ -44,7 +44,7 @@ async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
         except Exception:
             pass
 
-async def start_health_server(port: int, host: str = "0.0.0.0") -> asyncio.AbstractServer:
+async def start_health_server(port: int, host: str = "127.0.0.1") -> asyncio.AbstractServer:
     server = await asyncio.start_server(_handle, host, port)
     log.info("Health endpoint listening on %s:%s", host, port)
     return server

@@ -177,6 +177,39 @@ class TestTopicCommands:
         await cmd_topic(update, make_context(bot))
         assert "Topic Manager" in update.message.reply_text.await_args.args[0]
 
+    async def test_bind_and_bindings_and_unbind(self, bot):
+        from database.topics import db_create_custom_topic, db_get_binding
+        db_create_custom_topic("logs", 10)
+        update = admin_update()
+
+        await cmd_topic(update, make_context(bot, args=["bind", "event", "new_user", "logs"]))
+        assert db_get_binding("event", "new_user") == 10
+        assert "Bound" in update.message.reply_text.await_args.args[0]
+
+        await cmd_topic(update, make_context(bot, args=["bindings"]))
+        assert "new_user" in update.message.reply_text.await_args.args[0]
+
+        await cmd_topic(update, make_context(bot, args=["unbind", "event", "new_user"]))
+        assert db_get_binding("event", "new_user") is None
+        assert "Unbound" in update.message.reply_text.await_args.args[0]
+
+    async def test_bind_rejects_unknown_type(self, bot):
+        from database.topics import db_create_custom_topic
+        db_create_custom_topic("logs", 10)
+        update = admin_update()
+        await cmd_topic(update, make_context(bot, args=["bind", "bogus", "new_user", "logs"]))
+        assert "must be" in update.message.reply_text.await_args.args[0]
+
+    async def test_bind_rejects_missing_topic(self, bot):
+        update = admin_update()
+        await cmd_topic(update, make_context(bot, args=["bind", "event", "new_user", "nope"]))
+        assert "No custom topic" in update.message.reply_text.await_args.args[0]
+
+    async def test_unbind_missing_reports_not_found(self, bot):
+        update = admin_update()
+        await cmd_topic(update, make_context(bot, args=["unbind", "event", "ghost"]))
+        assert "No binding found" in update.message.reply_text.await_args.args[0]
+
 
 class TestCloseReopen:
     async def test_close_pauses_relay_and_archives(self, bot):
