@@ -1,4 +1,5 @@
 import html
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -100,6 +101,20 @@ async def cmd_setmsg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     from database.settings import db_set_setting
     db_set_setting(args[0], " ".join(args[1:]))
     await update.message.reply_text(f"✅ Setting <b>{args[0]}</b> updated.", parse_mode=ParseMode.HTML)
+
+async def cmd_manual(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """/manual — send docs/MANUAL.md as a Telegram document."""
+    if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
+    if not update.message: return
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(base_dir, "docs", "MANUAL.md")
+    if not os.path.exists(path):
+        await update.message.reply_text("Manual file not found on the server.")
+        return
+    with open(path, "rb") as f:
+        await update.message.reply_document(
+            document=f, filename="CustomPMBot-Manual.md",
+            caption="📖 Complete manual. In-chat: /help <command> for quick details.")
 
 async def cmd_analytics(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """/analytics [days] — activity report: messages/day, new users, top users, busy hours."""

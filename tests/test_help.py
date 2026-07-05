@@ -10,7 +10,7 @@ ADMIN_ID = 1000
 REGISTERED_ADMIN_COMMANDS = {
     "stats", "topic", "wallets", "ban", "unban", "banned", "setmsg",
     "forcebroadcast", "schedule", "autoreply", "users", "search",
-    "analytics", "tag", "export", "canned", "close", "reopen", "note",
+    "analytics", "manual", "tag", "export", "canned", "close", "reopen", "note",
 }
 REGISTERED_USER_COMMANDS = {"start", "help", "settings", "wallet", "cancel"}
 
@@ -77,3 +77,29 @@ class TestHelpCommand:
     async def test_detail_texts_fit_telegram_limit(self):
         for name, t in HELP_TOPICS.items():
             assert len(t["detail"]) < 3500, f"{name} detail too long"
+
+
+class TestManualCommand:
+    async def test_sends_manual_document(self, bot):
+        from handlers.admin import cmd_manual
+        update = make_update(user=make_tg_user(ADMIN_ID), message=make_message("/manual"),
+                             chat_type="group")
+        await cmd_manual(update, make_context(bot))
+        update.message.reply_document.assert_awaited_once()
+        assert update.message.reply_document.await_args.kwargs["filename"] == "CustomPMBot-Manual.md"
+
+    async def test_non_admin_ignored(self, bot, tg_user):
+        from handlers.admin import cmd_manual
+        update = make_update(user=tg_user, message=make_message("/manual"))
+        await cmd_manual(update, make_context(bot))
+        update.message.reply_document.assert_not_awaited()
+
+    async def test_missing_file_reported(self, bot, monkeypatch):
+        import handlers.admin as admin_mod
+        from handlers.admin import cmd_manual
+        monkeypatch.setattr(admin_mod.os.path, "exists", lambda p: False)
+        update = make_update(user=make_tg_user(ADMIN_ID), message=make_message("/manual"),
+                             chat_type="group")
+        await cmd_manual(update, make_context(bot))
+        assert "not found" in update.message.reply_text.await_args.args[0]
+        update.message.reply_document.assert_not_awaited()

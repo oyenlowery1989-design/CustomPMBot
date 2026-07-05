@@ -93,6 +93,9 @@ HELP_TOPICS = {
                    detail="/setmsg <key> <value> — set any setting. Useful keys:\n"
                           "• welcome_message — the /start greeting\n"
                           "• broadcast_confirm on|off — preview before broadcasting (default on)"),
+    "manual": dict(admin=True, cat="Setup", summary="Full manual as a file",
+                   detail="/manual — sends the complete manual (MANUAL.md) as a document: "
+                          "setup from zero, every feature with examples, troubleshooting."),
     "setup": dict(admin=True, cat="Setup", summary="Environment configuration",
                   detail="Env vars (see env.example):\n"
                          "• BOT_TOKEN, OWNER_ID, ADMIN_IDS, ADMIN_GROUP_ID — required\n"

@@ -10,7 +10,7 @@ from database.migrations import _run_migrations
 from services.health import start_health_server
 from services.watcher import StellarWatcher
 from handlers.user import cmd_start, cmd_help, cmd_settings
-from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search, cmd_analytics
+from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search, cmd_analytics, cmd_manual
 from handlers.relay import handle_private_message, handle_admin_group_message
 from handlers.broadcast import (
     _find_broadcast_topic, cmd_schedule, process_due_broadcasts,
@@ -96,6 +96,7 @@ async def post_init(app: Application) -> None:
         BotCommand("users", "List users with filters"),
         BotCommand("search", "Search message logs"),
         BotCommand("analytics", "Activity report"),
+        BotCommand("manual", "Full manual as a file"),
         BotCommand("wallets", "List all user wallets"),
         BotCommand("close", "Archive topic"),
         BotCommand("reopen", "Reopen topic"),
@@ -154,6 +155,7 @@ def main() -> None:
     app.add_handler(CommandHandler("users", cmd_users))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("analytics", cmd_analytics))
+    app.add_handler(CommandHandler("manual", cmd_manual))
     app.add_handler(CommandHandler("tag", cmd_tag))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("canned", cmd_canned))
