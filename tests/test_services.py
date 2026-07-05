@@ -117,16 +117,16 @@ def _make_watcher(payment_records, tx_memo):
     """Watcher with Horizon + httpx stubbed out."""
     watcher = StellarWatcher(make_bot())
     watcher.server = MagicMock()
-    (watcher.server.payments.return_value
-        .for_account.return_value
-        .order.return_value
+    query = watcher.server.payments.return_value.for_account.return_value
+    query.cursor.return_value = query  # .cursor(...) is optional and chainable
+    (query.order.return_value
         .limit.return_value
         .call.return_value) = {"_embedded": {"records": payment_records}}
     return watcher
 
 
-def _payment_record(from_addr=ADDR):
-    return {"type": "payment", "from": from_addr,
+def _payment_record(from_addr=ADDR, paging_token="1"):
+    return {"type": "payment", "from": from_addr, "paging_token": paging_token,
             "_links": {"transaction": {"href": "https://horizon/tx/1"}}}
 
 
@@ -262,6 +262,48 @@ class TestWatcher:
         assert db_get_user_wallets(1)[0]["verified"] == 0
         remaining = db_get_pending_verifications()
         assert len(remaining) == 1 and remaining[0]["user_id"] == 1
+
+    async def test_cursor_persisted_after_processing(self, monkeypatch):
+        """SEC-FIX regression (H3): the watcher must remember how far it has
+        paged through Horizon, or a backlog bigger than one page would
+        silently skip older pending verifications forever."""
+        import services.watcher as watcher_mod
+        from database.settings import db_get_setting
+        db_add_wallet(1, ADDR)
+        db_create_verification(1, ADDR, "123456")
+
+        watcher = _make_watcher([_payment_record(paging_token="500")], "123456")
+        monkeypatch.setattr(watcher_mod.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient("123456"))
+        await watcher._check_payments()
+
+        assert db_get_setting("stellar_watcher_cursor", "") == "500"
+
+    async def test_stored_cursor_passed_to_next_fetch(self, monkeypatch):
+        import services.watcher as watcher_mod
+        from database.settings import db_set_setting
+        db_set_setting("stellar_watcher_cursor", "999")
+        db_add_wallet(1, ADDR)
+        db_create_verification(1, ADDR, "123456")
+
+        watcher = _make_watcher([_payment_record()], "123456")
+        monkeypatch.setattr(watcher_mod.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient("123456"))
+        await watcher._check_payments()
+
+        watcher.server.payments.return_value.for_account.return_value.cursor.assert_called_once_with("999")
+
+    async def test_no_cursor_call_on_first_run(self, monkeypatch):
+        import services.watcher as watcher_mod
+        db_add_wallet(1, ADDR)
+        db_create_verification(1, ADDR, "123456")
+
+        watcher = _make_watcher([_payment_record()], "123456")
+        monkeypatch.setattr(watcher_mod.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient("123456"))
+        await watcher._check_payments()
+
+        watcher.server.payments.return_value.for_account.return_value.cursor.assert_not_called()
 
     async def test_horizon_failure_is_contained(self):
         db_add_wallet(1, ADDR)

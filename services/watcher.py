@@ -10,7 +10,11 @@ from database.wallets import (
     db_set_wallet_verified,
     db_delete_verification,
 )
+from database.settings import db_get_setting, db_set_setting
 from utils.strings import get_text
+
+_CURSOR_SETTING_KEY = "stellar_watcher_cursor"
+_PAGE_SIZE = 200
 
 
 class StellarWatcher:
@@ -56,22 +60,28 @@ class StellarWatcher:
         if not active:
             return
 
-        # Fetch recent payments via sync SDK — run in thread to avoid blocking the event loop
+        # Page forward from the last-processed paging token instead of always
+        # re-fetching only the newest page — otherwise more than _PAGE_SIZE
+        # payments landing between two 10s polls would silently skip older
+        # pending verifications forever. Ascending order + a persisted cursor
+        # means a watcher restart resumes exactly where it left off; if a
+        # backlog exceeds one page, later polls simply keep advancing.
+        cursor = db_get_setting(_CURSOR_SETTING_KEY, "")
         loop = asyncio.get_running_loop()
         try:
-            payments = await loop.run_in_executor(
-                None,
-                lambda: self.server.payments()
-                    .for_account(VERIFY_WALLET_PUBLIC)
-                    .order(desc=True)
-                    .limit(20)
-                    .call(),
-            )
+            def _fetch():
+                query = self.server.payments().for_account(VERIFY_WALLET_PUBLIC)
+                if cursor:
+                    query = query.cursor(cursor)
+                return query.order(asc=True).limit(_PAGE_SIZE).call()
+            payments = await loop.run_in_executor(None, _fetch)
         except Exception as e:
             log.error("Horizon payments fetch failed: %s", e)
             return
 
         records = payments.get("_embedded", {}).get("records", [])
+        if not records:
+            return
 
         # For each payment, fetch its transaction to read the memo field
         async with httpx.AsyncClient(timeout=10) as client:
@@ -132,6 +142,12 @@ class StellarWatcher:
                 # sharing this same colliding challenge code can still be
                 # confirmed by a later payment
                 candidates.remove(v)
+
+        # Advance the cursor past every record we just looked at (payment or
+        # not) so the next poll doesn't re-fetch this same page.
+        last_token = records[-1].get("paging_token")
+        if last_token:
+            db_set_setting(_CURSOR_SETTING_KEY, last_token)
 
     def stop(self):
         self.is_running = False
