@@ -291,8 +291,21 @@ class TestSettings:
 class TestCanned:
     def test_set_get_lowercases_name(self):
         db_canned_set("Hello", "Hi there!")
-        assert db_canned_get("hello") == "Hi there!"
-        assert db_canned_get("HELLO") == "Hi there!"
+        assert db_canned_get("hello")["body"] == "Hi there!"
+        assert db_canned_get("HELLO")["body"] == "Hi there!"
+
+    def test_default_is_text(self):
+        db_canned_set("x", "y")
+        row = db_canned_get("x")
+        assert row["content_type"] == "text"
+        assert row["file_id"] is None
+
+    def test_media_roundtrip(self):
+        db_canned_set("pic", "a caption", content_type="photo", file_id="FID123")
+        row = db_canned_get("pic")
+        assert row["content_type"] == "photo"
+        assert row["file_id"] == "FID123"
+        assert row["body"] == "a caption"
 
     def test_get_missing(self):
         assert db_canned_get("nope") is None

@@ -204,6 +204,7 @@ class TestAdminGroupMessage:
 
     async def test_message_in_broadcast_topic_broadcasts(self, bot, tg_user):
         db_set_setting("broadcast_topic_id", "900")
+        db_set_setting("broadcast_confirm", "off")  # instant mode
         db_upsert_user(tg_user)
         admin = make_tg_user(ADMIN_ID)
         msg = make_message("big news", thread_id=900)

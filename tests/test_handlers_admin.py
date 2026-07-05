@@ -311,7 +311,7 @@ class TestCanned:
     async def test_add_and_get(self, bot):
         update = admin_update()
         await cmd_canned(update, make_context(bot, args=["add", "greet", "Hello", "friend!"]))
-        assert db_canned_get("greet") == "Hello friend!"
+        assert db_canned_get("greet")["body"] == "Hello friend!"
 
     async def test_list(self, bot):
         db_canned_set("greet", "Hello!")
@@ -346,6 +346,41 @@ class TestCanned:
         update = admin_update()
         await cmd_canned(update, make_context(bot, args=["nope"]))
         assert "not found" in update.message.reply_text.await_args.args[0]
+
+    async def test_add_media_via_reply(self, bot):
+        from types import SimpleNamespace
+        photo = [SimpleNamespace(file_id="small"), SimpleNamespace(file_id="big")]
+        update = admin_update()
+        update.message.reply_to_message = make_message(text=None, photo=photo)
+        await cmd_canned(update, make_context(bot, args=["add", "promo", "Check", "this!"]))
+        row = db_canned_get("promo")
+        assert row["content_type"] == "photo"
+        assert row["file_id"] == "big"  # largest photo size
+        assert row["body"] == "Check this!"
+
+    async def test_send_media_canned_in_topic(self, bot):
+        db_upsert_user(make_tg_user(USER_ID), topic_id=55)
+        db_canned_set("promo", "Look!", content_type="photo", file_id="FID9")
+        update = admin_update(thread_id=55)
+        await cmd_canned(update, make_context(bot, args=["promo"]))
+        bot.send_photo.assert_awaited_once()
+        assert bot.send_photo.await_args.kwargs["chat_id"] == USER_ID
+        assert bot.send_photo.await_args.kwargs["photo"] == "FID9"
+        assert bot.send_photo.await_args.kwargs["caption"] == "Look!"
+        assert db_export_messages(USER_ID)[0]["content_type"] == "photo"
+
+    async def test_media_list_shows_type_icon(self, bot):
+        db_canned_set("promo", "x", content_type="photo", file_id="F")
+        update = admin_update()
+        await cmd_canned(update, make_context(bot, args=["list"]))
+        assert "🖼" in update.message.reply_text.await_args.args[0]
+
+    async def test_sticker_canned_ignores_caption(self, bot):
+        db_upsert_user(make_tg_user(USER_ID), topic_id=55)
+        db_canned_set("st", "", content_type="sticker", file_id="STK")
+        update = admin_update(thread_id=55)
+        await cmd_canned(update, make_context(bot, args=["st"]))
+        bot.send_sticker.assert_awaited_once_with(chat_id=USER_ID, sticker="STK")
 
 
 class TestUsers:

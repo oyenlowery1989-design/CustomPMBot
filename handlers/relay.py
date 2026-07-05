@@ -159,14 +159,18 @@ async def handle_admin_group_message(update: Update, ctx: ContextTypes.DEFAULT_T
     if not sender or sender.id not in ADMIN_IDS: return
 
     thread_id = msg.message_thread_id
-    from handlers.broadcast import _find_broadcast_topic, _do_broadcast
+    from handlers.broadcast import _find_broadcast_topic, _do_broadcast, _stage_broadcast, _resolve_recipients
     broadcast_tid = await _find_broadcast_topic(ctx.bot)
-    
+
     if broadcast_tid and thread_id == broadcast_tid:
-        from database.users import db_get_all_subscribers, db_get_reachable_users
-        recips = db_get_all_subscribers()
-        reach = db_get_reachable_users()
-        await _do_broadcast(ctx.bot, msg, recips, "all", opted_out_count=len(reach)-len(recips))
+        from database.settings import db_get_setting
+        # broadcast_confirm defaults ON: preview + confirm button instead of
+        # instant send. Disable with: /setmsg broadcast_confirm off
+        if db_get_setting("broadcast_confirm", "on") != "off":
+            await _stage_broadcast(ctx.bot, msg)
+            return
+        recips, label, opted_out = _resolve_recipients(msg)
+        await _do_broadcast(ctx.bot, msg, recips, label, opted_out_count=opted_out)
         return
 
     row = db_get_user_by_topic(thread_id)

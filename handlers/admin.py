@@ -101,6 +101,46 @@ async def cmd_setmsg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     db_set_setting(args[0], " ".join(args[1:]))
     await update.message.reply_text(f"✅ Setting <b>{args[0]}</b> updated.", parse_mode=ParseMode.HTML)
 
+async def cmd_analytics(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """/analytics [days] — activity report: messages/day, new users, top users, busy hours."""
+    if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
+    from database.analytics import (
+        db_messages_per_day, db_new_users_per_day, db_top_users, db_busiest_hours,
+    )
+    days = 7
+    if ctx.args and ctx.args[0].isdigit():
+        days = max(1, min(int(ctx.args[0]), 90))
+
+    lines = [f"📈 <b>Analytics — last {days} day(s)</b>\n"]
+
+    per_day = db_messages_per_day(days)
+    lines.append("<b>Messages per day</b>")
+    if per_day:
+        for r in per_day:
+            lines.append(f"• {r['day']}: {r['msgs_in']} 📥 / {r['msgs_out']} 📤")
+    else:
+        lines.append("• none")
+
+    new_users = db_new_users_per_day(days)
+    total_new = sum(r["count"] for r in new_users)
+    lines.append(f"\n<b>New users:</b> {total_new}")
+    for r in new_users:
+        lines.append(f"• {r['day']}: +{r['count']}")
+
+    top = db_top_users(days)
+    if top:
+        lines.append("\n<b>Most active users</b>")
+        for r in top:
+            name = html.escape(r["first_name"] or "Unknown")
+            lines.append(f"• <code>{r['user_id']}</code> {name}: {r['count']} msg(s)")
+
+    hours = db_busiest_hours(days)
+    if hours:
+        busiest = ", ".join(f"{r['hour']}:00 UTC ({r['count']})" for r in hours)
+        lines.append(f"\n<b>Busiest hours:</b> {busiest}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
 async def cmd_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """/users [active|blocked|banned|paused|tag <TAG>] — list users, newest first."""
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return

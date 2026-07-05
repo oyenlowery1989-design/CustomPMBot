@@ -3,7 +3,7 @@ import sqlite3
 from database.connection import get_db
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -180,6 +180,19 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v8→v9: message_map (reply threading) and auto_replies added.")
         current = 9
+
+    if current < 10:
+        # ISSUE-007: canned responses can carry media (file_id replay)
+        for stmt in (
+            "ALTER TABLE canned ADD COLUMN content_type TEXT DEFAULT 'text'",
+            "ALTER TABLE canned ADD COLUMN file_id TEXT",
+        ):
+            try:
+                db.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+        log.info("Migration v9→v10: canned media columns added.")
+        current = 10
 
     _set_schema_version(db, current)
     db.commit()

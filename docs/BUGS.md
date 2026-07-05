@@ -53,8 +53,9 @@
 - **Severity:** None
 
 ### ISSUE-007: `/canned <name>` doesn't support media
+- **Status:** ✅ Fixed (2026-07-05)
 - **Description:** Canned responses are text-only. Can't save/send photos or media as canned.
-- **Severity:** Low
+- **Fix:** Reply to any media message with `/canned add <name> [caption]` — file_id + type stored (schema v10), replayed on send.
 
 ### ISSUE-008: Graceful shutdown
 - **Description:** DB connection never explicitly closed on shutdown.
@@ -73,7 +74,7 @@
 
 ### Broadcasting
 - Scheduled broadcasts — `/schedule <duration> <message>` ✅ (2026-07-05)
-- Broadcast preview — send to admin first before broadcasting
+- Broadcast preview — confirm button before sending, on by default (`/setmsg broadcast_confirm off` to disable) ✅ (2026-07-05)
 - Broadcast cancel — `/schedule cancel <id>` for scheduled ones ✅ (2026-07-05)
 - Broadcast history — `/schedule list` shows recently sent ✅ (2026-07-05)
 
@@ -115,6 +116,8 @@
 | 2026-07-04 | StellarWatcher never started — memo verification dead | Started as background task in `post_init`, stopped in `post_shutdown` |
 | 2026-07-04 | Expired bans only cleaned lazily — kept excluding users from broadcasts | `cleanup_expired_bans()` + 5-min background loop in bot.py |
 | 2026-07-04 | Zero test coverage | 234-test pytest suite in `tests/` covering every feature (DB, services, utils, all handlers) |
+| 2026-07-05 | Tagged broadcasts (`@TAG` first line) lost in modular rewrite — `db_get_subscribers_by_tag` imported but never called | `_parse_tag_target`/`_resolve_recipients` restored in broadcast path |
+| 2026-07-05 | Canned media (ISSUE-007) | `content_type`/`file_id` columns (v10), reply-to-media `/canned add` |
 
 ---
 

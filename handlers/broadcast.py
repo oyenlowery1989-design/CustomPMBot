@@ -4,7 +4,7 @@ import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Tuple
-from telegram import Update, Bot, Message
+from telegram import Update, Bot, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
 from telegram.error import Forbidden, TelegramError
 from telegram.ext import ContextTypes
@@ -14,11 +14,33 @@ from database.broadcasts import (
     db_get_sent_broadcasts, db_cancel_scheduled, db_mark_broadcast_sent,
 )
 from database.settings import db_get_setting, db_set_setting
-from database.users import db_get_all_subscribers, db_get_subscribers_by_tag, db_mark_blocked
+from database.users import (
+    db_get_all_subscribers, db_get_subscribers_by_tag, db_get_reachable_users,
+    db_mark_blocked,
+)
 from utils.helpers import _is_admin, _parse_duration, _format_duration
 from utils.media import _relay_to_user
 
 _broadcast_topic_id = None
+_pending_broadcasts = {}  # message_id → Message awaiting admin confirmation
+
+def _parse_tag_target(msg: Message) -> Optional[str]:
+    """'@VIP' alone on the first line targets that tag's subscribers.
+    The tag line stays in the delivered message (acts as a header)."""
+    text = msg.text or msg.caption or ""
+    first = text.split("\n", 1)[0].strip()
+    if first.startswith("@") and len(first) > 1 and " " not in first:
+        return first[1:]
+    return None
+
+def _resolve_recipients(msg: Message):
+    """Returns (recipients, label, opted_out_count) for a broadcast message."""
+    tag = _parse_tag_target(msg)
+    if tag:
+        return db_get_subscribers_by_tag(tag), f"tag {tag.upper()}", 0
+    recips = db_get_all_subscribers()
+    opted_out = len(db_get_reachable_users()) - len(recips)
+    return recips, "all", opted_out
 
 async def _find_broadcast_topic(bot: Bot) -> Optional[int]:
     global _broadcast_topic_id
@@ -129,6 +151,50 @@ async def _broadcast_text(bot: Bot, text: str, recipients: List[sqlite3.Row], la
             log.warning("Could not post broadcast report (%s): %s", label, e)
     log.info("Broadcast (%s): %d sent, %d blocked, %d failed", label, sent, blocked, failed)
     return sent, blocked, failed
+
+async def _stage_broadcast(bot: Bot, msg: Message) -> None:
+    """Preview + confirm instead of instant send. Pending drafts live in
+    memory only — a restart drops them (admin just re-posts)."""
+    recips, label, opted_out = _resolve_recipients(msg)
+    _pending_broadcasts[msg.message_id] = msg
+    text = (f"📢 <b>Broadcast preview ({label})</b>\n\n"
+            f"Will be sent to <b>{len(recips)}</b> subscriber(s).")
+    if opted_out:
+        text += f"\n💤 {opted_out} opted-out user(s) will be skipped."
+    if not recips:
+        text += "\n\n⚠️ No recipients — sending would reach nobody."
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"📢 Send to {len(recips)}", callback_data=f"bc_go_{msg.message_id}"),
+        InlineKeyboardButton("❌ Cancel", callback_data=f"bc_no_{msg.message_id}"),
+    ]])
+    await bot.send_message(chat_id=ADMIN_GROUP_ID, message_thread_id=msg.message_thread_id,
+                           text=text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+async def cb_broadcast_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
+    msg = _pending_broadcasts.pop(int(q.data.replace("bc_go_", "")), None)
+    if msg is None:
+        await q.answer("Expired — repost the broadcast message.")
+        await q.edit_message_text("⚠️ Broadcast draft expired (bot restarted?). Repost the message.")
+        return
+    await q.answer("Broadcasting…")
+    await q.edit_message_text("📢 Broadcasting…")
+    recips, label, opted_out = _resolve_recipients(msg)
+    await _do_broadcast(ctx.bot, msg, recips, label, opted_out_count=opted_out)
+
+async def cb_broadcast_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
+    _pending_broadcasts.pop(int(q.data.replace("bc_no_", "")), None)
+    await q.answer("Cancelled")
+    await q.edit_message_text("❌ Broadcast cancelled — nothing was sent.")
 
 async def process_due_broadcasts(bot: Bot) -> int:
     """Send all scheduled broadcasts whose time has come. Returns how many ran.

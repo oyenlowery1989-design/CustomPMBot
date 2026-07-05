@@ -9,9 +9,12 @@ from database.bans import cleanup_expired_bans
 from database.migrations import _run_migrations
 from services.watcher import StellarWatcher
 from handlers.user import cmd_start, cmd_help, cmd_settings
-from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search
+from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg, cmd_forcebroadcast, cmd_users, cmd_search, cmd_analytics
 from handlers.relay import handle_private_message, handle_admin_group_message
-from handlers.broadcast import _find_broadcast_topic, cmd_schedule, process_due_broadcasts
+from handlers.broadcast import (
+    _find_broadcast_topic, cmd_schedule, process_due_broadcasts,
+    cb_broadcast_confirm, cb_broadcast_cancel,
+)
 from handlers.topics import cmd_topic, cmd_close, cmd_reopen, cmd_note
 from handlers.autoreply import cmd_autoreply
 from handlers.tags import cmd_tag
@@ -85,6 +88,7 @@ async def post_init(app: Application) -> None:
         BotCommand("autoreply", "Keyword auto-replies"),
         BotCommand("users", "List users with filters"),
         BotCommand("search", "Search message logs"),
+        BotCommand("analytics", "Activity report"),
         BotCommand("wallets", "List all user wallets"),
         BotCommand("close", "Archive topic"),
         BotCommand("reopen", "Reopen topic"),
@@ -139,6 +143,7 @@ def main() -> None:
     app.add_handler(CommandHandler("autoreply", cmd_autoreply))
     app.add_handler(CommandHandler("users", cmd_users))
     app.add_handler(CommandHandler("search", cmd_search))
+    app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("tag", cmd_tag))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(CommandHandler("canned", cmd_canned))
@@ -158,6 +163,8 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(cb_help, pattern="^help$"))
     app.add_handler(CallbackQueryHandler(cb_back_start, pattern="^back_start$"))
     app.add_handler(CallbackQueryHandler(cb_appeal, pattern="^appeal_"))
+    app.add_handler(CallbackQueryHandler(cb_broadcast_confirm, pattern="^bc_go_"))
+    app.add_handler(CallbackQueryHandler(cb_broadcast_cancel, pattern="^bc_no_"))
 
     # Relay Handlers
     app.add_handler(MessageHandler(dm_filter & ~filters.COMMAND, handle_private_message))

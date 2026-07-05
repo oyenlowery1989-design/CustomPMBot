@@ -44,6 +44,7 @@ def reset_module_state():
     import utils.strings as strings
 
     broadcast._broadcast_topic_id = None
+    broadcast._pending_broadcasts.clear()
     wallet._awaiting_wallet_addr.clear()
     wallet._awaiting_wallet_label.clear()
     wallet._awaiting_secret_key.clear()

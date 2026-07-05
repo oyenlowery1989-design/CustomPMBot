@@ -73,12 +73,15 @@
 - [x] `/search <query>` — search message logs, topic-scoped inside user topics
 - [x] FEAT-001 — random colored circle icons on user + custom topics
 - [x] Custom auto-replies — `/autoreply add/del/list`, whole-word keyword match, admin notified when fired
+- [x] Canned media (ISSUE-007) — reply to media with `/canned add <name> [caption]` (v10)
+- [x] Broadcast preview/confirm — default ON; `@TAG` targeting restored (was dead since modular rewrite)
+- [x] `/analytics [days]` — messages/day, new users/day, top users, busiest hours
 
 ### Medium Priority
 - [ ] Auto-translate incoming messages (detect language)
 - [ ] Webhook mode (lower latency vs polling)
 - [x] Custom auto-replies (keyword → response) (2026-07-05)
-- [ ] Analytics — messages per day, active hours, user growth chart
+- [x] Analytics — `/analytics [days]`: messages/day, new users, top users, busiest hours (2026-07-05)
 - [ ] Connection pool or per-request DB (thread safety)
 
 ### Low Priority
@@ -130,5 +133,5 @@ message passes a human.
 - **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 9
+- **Schema version:** 10
 - ⚠️ Bot token needs rotation (was shared in chat)

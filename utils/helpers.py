@@ -51,3 +51,15 @@ def _content_type_of(msg: Message) -> str:
 
 def _is_admin(user_id: int, admin_ids: set[int]) -> bool:
     return user_id in admin_ids
+
+def _media_of(msg: Message):
+    """(content_type, file_id) of a message's replayable media, else None.
+    Only types that can be re-sent by file_id with an optional caption."""
+    if msg.photo: return ("photo", msg.photo[-1].file_id)
+    if msg.video: return ("video", msg.video.file_id)
+    if msg.document: return ("document", msg.document.file_id)
+    if msg.animation: return ("animation", msg.animation.file_id)
+    if msg.audio: return ("audio", msg.audio.file_id)
+    if msg.voice: return ("voice", msg.voice.file_id)
+    if msg.sticker: return ("sticker", msg.sticker.file_id)
+    return None
