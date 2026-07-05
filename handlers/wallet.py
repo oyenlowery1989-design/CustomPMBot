@@ -196,8 +196,9 @@ async def cb_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     divider = get_text('user_commands.help_divider')
     text = (f"{get_text('user_commands.help_header')}\n{divider}\n{get_text('user_commands.help_user_section')}\n{divider}\n\n{get_text('user_commands.cmd_start_desc')}\n{get_text('user_commands.cmd_help_desc')}\n{get_text('user_commands.cmd_settings_desc')}\n{get_text('user_commands.cmd_wallet_desc')}\n{get_text('user_commands.cmd_cancel_desc')}")
     if is_admin:
-        text += (f"\n\n{divider}\n{get_text('user_commands.help_admin_section')}\n{divider}\n\n"
-                 "/stats, /ban, /unban, /topic, /tag, /export, /canned, /forcebroadcast, /wallets, /close, /reopen, /note")
+        from handlers.help_topics import admin_overview
+        text += (f"\n\n{divider}\n{get_text('user_commands.help_admin_section')}\n{divider}\n"
+                 f"{admin_overview()}")
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(get_text("settings.btn_back"), callback_data="back_start")]])
     await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 

@@ -76,6 +76,8 @@
 - [x] Canned media (ISSUE-007) — reply to media with `/canned add <name> [caption]` (v10)
 - [x] Broadcast preview/confirm — default ON; `@TAG` targeting restored (was dead since modular rewrite)
 - [x] `/analytics [days]` — messages/day, new users/day, top users, busiest hours
+- [x] `/help <command>` — per-command usage from single source (`handlers/help_topics.py`); stale hardcoded lists replaced
+- [x] `docs/MANUAL.md` — complete manual: setup, every feature, troubleshooting
 
 ### Medium Priority
 - [ ] Auto-translate incoming messages (detect language)

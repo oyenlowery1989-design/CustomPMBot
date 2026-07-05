@@ -6,6 +6,7 @@ from config import ADMIN_IDS
 from database.users import db_upsert_user, db_get_user, db_set_broadcast_opt
 from database.settings import db_get_setting
 from database.wallets import db_get_user_wallets
+from handlers.help_topics import HELP_TOPICS, admin_overview
 from utils.helpers import _is_admin
 from utils.strings import get_text
 
@@ -32,8 +33,22 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message: return
-    
+
     is_admin = _is_admin(user.id, ADMIN_IDS)
+
+    # /help <command> — detailed usage
+    if ctx.args:
+        topic_name = ctx.args[0].lstrip("/").lower()
+        topic = HELP_TOPICS.get(topic_name)
+        if topic is None or (topic["admin"] and not is_admin):
+            await update.message.reply_text(
+                f"No help available for '{html.escape(topic_name)}'. Use /help for the overview.")
+            return
+        await update.message.reply_text(
+            f"📖 <b>/{topic_name}</b> — {topic['summary']}\n\n{topic['detail']}",
+            parse_mode=ParseMode.HTML)
+        return
+
     divider = get_text('user_commands.help_divider')
 
     # Build user section
@@ -53,20 +68,8 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         text += (
             f"\n{divider}\n"
             f"{get_text('user_commands.help_admin_section')}\n"
-            f"{divider}\n\n"
-            f"{get_text('admin_commands.cmd_stats')}\n"
-            f"{get_text('admin_commands.cmd_wallets')}\n"
-            f"{get_text('admin_commands.cmd_topic')}\n"
-            f"{get_text('admin_commands.cmd_ban')}\n"
-            f"{get_text('admin_commands.cmd_unban')}\n"
-            f"{get_text('admin_commands.cmd_banned')}\n"
-            f"{get_text('admin_commands.cmd_tag')}\n"
-            f"{get_text('admin_commands.cmd_export')}\n"
-            f"{get_text('admin_commands.cmd_canned')}\n"
-            f"{get_text('admin_commands.cmd_force')}\n"
-            f"{get_text('admin_commands.cmd_close')}\n"
-            f"{get_text('admin_commands.cmd_reopen')}\n"
-            f"{get_text('admin_commands.cmd_note')}\n"
+            f"{divider}\n"
+            f"{admin_overview()}"
         )
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)

@@ -3,6 +3,9 @@
 Telegram support-desk bot: every user who DMs the bot gets a dedicated forum
 topic in your admin group; admin replies in the topic relay back to the user.
 
+📖 **[Complete manual](docs/MANUAL.md)** — setup, every feature, troubleshooting.
+In-bot: `/help` for the overview, `/help <command>` for details.
+
 ## Features
 
 - **Relay** — user DMs ↔ per-user forum topic, full media support both directions; admin replies to a forwarded message quote the user's original
