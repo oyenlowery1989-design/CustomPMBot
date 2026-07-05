@@ -3,7 +3,7 @@ import sqlite3
 from database.connection import get_db
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -164,6 +164,22 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v7→v8: scheduled_broadcasts table added.")
         current = 8
+
+    if current < 9:
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS message_map (
+                topic_msg_id INTEGER PRIMARY KEY,
+                user_msg_id  INTEGER NOT NULL,
+                user_id      INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS auto_replies (
+                keyword    TEXT PRIMARY KEY,
+                response   TEXT NOT NULL,
+                created_at TEXT
+            );
+        """)
+        log.info("Migration v8→v9: message_map (reply threading) and auto_replies added.")
+        current = 9
 
     _set_schema_version(db, current)
     db.commit()

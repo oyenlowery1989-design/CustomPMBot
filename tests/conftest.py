@@ -68,18 +68,21 @@ MEDIA_FIELDS = (
 )
 
 
-def make_message(text="hi", thread_id=None, caption=None, **media):
+def make_message(text="hi", thread_id=None, caption=None, message_id=42,
+                 reply_to_message=None, **media):
     msg = SimpleNamespace(
         text=text,
         caption=caption,
         message_thread_id=thread_id,
-        message_id=42,
+        message_id=message_id,
+        reply_to_message=reply_to_message,
         entities=None,
         caption_entities=None,
         reply_text=AsyncMock(),
         reply_document=AsyncMock(),
         delete=AsyncMock(),
-        forward=AsyncMock(),
+        # forward returns the forwarded copy — relay maps its message_id
+        forward=AsyncMock(return_value=SimpleNamespace(message_id=8800)),
         edit_text=AsyncMock(),
     )
     for f in MEDIA_FIELDS:

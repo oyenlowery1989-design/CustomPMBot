@@ -5,7 +5,8 @@ topic in your admin group; admin replies in the topic relay back to the user.
 
 ## Features
 
-- **Relay** — user DMs ↔ per-user forum topic, full media support both directions
+- **Relay** — user DMs ↔ per-user forum topic, full media support both directions; admin replies to a forwarded message quote the user's original
+- **Auto-replies** — `/autoreply add <keyword> <response>`: whole-word keyword match answers instantly, admins see a note in the topic
 - **Broadcasts** — post in the broadcast topic to message all subscribers; `@TAG` first line targets a tag; live progress with sent/blocked/failed counts; `/schedule 2h <message>` for delayed broadcasts with list/cancel/history
 - **Moderation** — `/ban` (with expiry + auto-unban), `/unban`, `/banned`, spam auto-ban, `/close`/`/reopen` topics, pinned `/note`
 - **Organization** — user tags, custom topics with command/event bindings, canned responses, conversation `/export`, `/users` filters, `/search` over message logs, colored topic icons

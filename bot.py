@@ -13,6 +13,7 @@ from handlers.admin import cmd_stats, cmd_ban, cmd_unban, cmd_banned, cmd_setmsg
 from handlers.relay import handle_private_message, handle_admin_group_message
 from handlers.broadcast import _find_broadcast_topic, cmd_schedule, process_due_broadcasts
 from handlers.topics import cmd_topic, cmd_close, cmd_reopen, cmd_note
+from handlers.autoreply import cmd_autoreply
 from handlers.tags import cmd_tag
 from handlers.export import cmd_export
 from handlers.canned import cmd_canned
@@ -81,6 +82,7 @@ async def post_init(app: Application) -> None:
         BotCommand("canned", "Canned responses"),
         BotCommand("forcebroadcast", "Global broadcast override"),
         BotCommand("schedule", "Schedule a broadcast"),
+        BotCommand("autoreply", "Keyword auto-replies"),
         BotCommand("users", "List users with filters"),
         BotCommand("search", "Search message logs"),
         BotCommand("wallets", "List all user wallets"),
@@ -134,6 +136,7 @@ def main() -> None:
     app.add_handler(CommandHandler("setmsg", cmd_setmsg))
     app.add_handler(CommandHandler("forcebroadcast", cmd_forcebroadcast))
     app.add_handler(CommandHandler("schedule", cmd_schedule))
+    app.add_handler(CommandHandler("autoreply", cmd_autoreply))
     app.add_handler(CommandHandler("users", cmd_users))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("tag", cmd_tag))

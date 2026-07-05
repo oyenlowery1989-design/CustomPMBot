@@ -63,19 +63,21 @@
 ## v3.0 — Future Ideas
 
 ### High Priority
+- [ ] **AI-drafted replies with human approval** — see design below
 - [ ] Web dashboard (user list, stats, ban management)
 - [x] Scheduled broadcasts — `/schedule <duration> <message>` + list/cancel/history (2026-07-05)
-- [ ] Inline reply preview — show user's original message when relying
+- [x] Inline reply preview — admin reply to a forwarded message quotes the user's original (message_map, v9)
 
 ### Done 2026-07-05
 - [x] `/users` — list users with filters (active, blocked, banned, paused, tag)
 - [x] `/search <query>` — search message logs, topic-scoped inside user topics
 - [x] FEAT-001 — random colored circle icons on user + custom topics
+- [x] Custom auto-replies — `/autoreply add/del/list`, whole-word keyword match, admin notified when fired
 
 ### Medium Priority
 - [ ] Auto-translate incoming messages (detect language)
 - [ ] Webhook mode (lower latency vs polling)
-- [ ] Custom auto-replies (keyword → response)
+- [x] Custom auto-replies (keyword → response) (2026-07-05)
 - [ ] Analytics — messages per day, active hours, user growth chart
 - [ ] Connection pool or per-request DB (thread safety)
 
@@ -88,6 +90,39 @@
 
 ---
 
+## Design: AI-Drafted Replies (Human-Approved)
+
+**Goal:** when a user messages, an AI drafts the answer; admins only review and
+approve. The AI NEVER sends anything to a user directly — every outgoing
+message passes a human.
+
+**Flow:**
+1. User message arrives → relayed to their topic as today.
+2. Bot calls the Claude API with:
+   - admin-written guidelines (what to answer, tone, what to refuse/escalate)
+   - the user's recent conversation history (from the `messages` table)
+   - existing canned responses + auto-reply keywords as a knowledge base
+3. AI returns either a draft reply or `ESCALATE` (out of scope per guidelines).
+4. Draft is posted **into the user's topic only** (user sees nothing) with buttons:
+   - ✅ **Send** — relays the draft to the user, logs it as `out`
+   - ✏️ **Edit** — admin replies to the draft message with corrected text; that gets sent instead (and the pair draft→correction is stored as a future few-shot example)
+   - ❌ **Dismiss** — draft discarded, admin answers manually
+5. If `ESCALATE` or the API fails → normal manual workflow, silently.
+
+**Teaching the AI:**
+- `/ai guidelines <text>` — persistent system instructions (stored in `settings`)
+- `/ai rules` — hard refusal list ("never discuss refunds over $100, never make legal claims, never promise dates")
+- Approved and edited drafts accumulate as examples: the last N approved pairs are injected into the prompt so the AI converges on the admin's style.
+- `/ai on|off` — global toggle; per-topic mute possible later.
+
+**Schema (future migration):** `ai_drafts(id, user_id, draft, status[pending|sent|edited|dismissed], created_at)` — status log doubles as training data.
+
+**Config:** `ANTHROPIC_API_KEY` env var; model `claude-haiku-4-5` for cost, upgradeable to Sonnet. Rough cost: a support reply ≈ 1-2k tokens — fractions of a cent per draft.
+
+**Safety invariants:** no auto-send ever; drafts live only in the admin group; API errors degrade to manual mode; user PII already in the DB, nothing new leaves except what's sent to the Claude API for drafting.
+
+---
+
 ## Infrastructure Notes
 
 - **VPS:** <vps-host> (Ubuntu 24.04)
@@ -95,5 +130,5 @@
 - **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 8
+- **Schema version:** 9
 - ⚠️ Bot token needs rotation (was shared in chat)

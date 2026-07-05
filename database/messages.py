@@ -1,10 +1,25 @@
 import sqlite3
 import logging
-from typing import List
+from typing import List, Optional
 from database.connection import get_db
 from utils.helpers import _now_iso
 
 log = logging.getLogger("nopmsbot")
+
+def db_map_message(user_id: int, user_msg_id: int, topic_msg_id: int) -> None:
+    """Remember which topic message is the forward of which user message,
+    so admin replies can quote the user's original (inline reply preview)."""
+    get_db().execute(
+        "INSERT OR REPLACE INTO message_map (topic_msg_id, user_msg_id, user_id) VALUES (?,?,?)",
+        (topic_msg_id, user_msg_id, user_id),
+    )
+    get_db().commit()
+
+def db_get_mapped_user_msg(topic_msg_id: int) -> Optional[int]:
+    row = get_db().execute(
+        "SELECT user_msg_id FROM message_map WHERE topic_msg_id=?", (topic_msg_id,)
+    ).fetchone()
+    return row["user_msg_id"] if row else None
 
 def db_log_message(user_id: int, direction: str, content_type: str, text: str = "") -> None:
     get_db().execute(

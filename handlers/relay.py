@@ -7,8 +7,9 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from config import ADMIN_GROUP_ID, log, SPAM_BAN_DURATION, ADMIN_IDS
 from database.users import db_upsert_user, db_get_user, db_mark_unblocked, db_get_user_by_topic
+from database.autoreplies import db_autoreply_match
 from database.bans import db_is_banned, db_ban
-from database.messages import db_log_message
+from database.messages import db_log_message, db_map_message, db_get_mapped_user_msg
 from database.tags import db_get_tags
 from database.wallets import db_add_wallet, db_store_key, db_set_wallet_verified
 from services.spam import _check_spam, _reset_spam
@@ -132,9 +133,24 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         return
 
     topic_id = await _ensure_topic(ctx.bot, user)
-    await _forward_to_topic(ctx.bot, msg, topic_id)
+    fwd = await _forward_to_topic(ctx.bot, msg, topic_id)
+    if fwd:
+        # Reply threading: admin replying to this forward quotes the original
+        db_map_message(user.id, msg.message_id, fwd.message_id)
     ct = _content_type_of(msg)
     db_log_message(user.id, "in", ct, msg.text or msg.caption or "")
+
+    # Keyword auto-reply (admins still saw the message above)
+    if msg.text:
+        match = db_autoreply_match(msg.text)
+        if match:
+            keyword, response = match
+            await msg.reply_text(response)
+            db_log_message(user.id, "out", "text", response)
+            await ctx.bot.send_message(
+                chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
+                text=f"🤖 Auto-replied (keyword: <b>{html.escape(keyword)}</b>)",
+                parse_mode=ParseMode.HTML)
 
 async def handle_admin_group_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.effective_message
@@ -155,5 +171,11 @@ async def handle_admin_group_message(update: Update, ctx: ContextTypes.DEFAULT_T
 
     row = db_get_user_by_topic(thread_id)
     if not row: return
-    await _relay_to_user(ctx.bot, msg, row["user_id"])
+
+    # If the admin replied to a forwarded user message, quote the user's original
+    reply_to = None
+    if msg.reply_to_message:
+        reply_to = db_get_mapped_user_msg(msg.reply_to_message.message_id)
+
+    await _relay_to_user(ctx.bot, msg, row["user_id"], reply_to_message_id=reply_to)
     db_log_message(row["user_id"], "out", _content_type_of(msg), msg.text or msg.caption or "")
