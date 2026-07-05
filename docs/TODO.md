@@ -123,7 +123,7 @@ message passes a human.
 
 **Schema (future migration):** `ai_drafts(id, user_id, draft, status[pending|sent|edited|dismissed], created_at)` — status log doubles as training data.
 
-**Config:** `ANTHROPIC_API_KEY` env var; model `claude-haiku-4-5` for cost, upgradeable to Sonnet. Rough cost: a support reply ≈ 1-2k tokens — fractions of a cent per draft.
+**Config (provider-agnostic):** `AI_PROVIDER=anthropic|openai|gemini`, `AI_API_KEY`, `AI_MODEL` env vars — see docs/RUNNING.md §8 for per-provider setup and pricing. Anthropic via the official SDK; OpenAI and Gemini share one httpx adapter (Gemini exposes an OpenAI-compatible endpoint). Default models: `claude-haiku-4-5` ($1/$5 per 1M tokens), or a small OpenAI / Gemini Flash model. Rough cost: a support reply ≈ 2k tokens — under half a cent per draft on any provider.
 
 **Safety invariants:** no auto-send ever; drafts live only in the admin group; API errors degrade to manual mode; user PII already in the DB, nothing new leaves except what's sent to the Claude API for drafting.
 

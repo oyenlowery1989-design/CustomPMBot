@@ -5,6 +5,7 @@ topic in your admin group; admin replies in the topic relay back to the user.
 
 📖 **[Complete manual](docs/MANUAL.md)** — setup, every feature, troubleshooting.
 In-bot: `/help` for the overview, `/help <command>` for details.
+▶️ **[Running guide](docs/RUNNING.md)** — step-by-step from zero, plus AI provider setup.
 🚀 **[Deployment guide](docs/DEPLOY.md)** — one-command VPS deploy with systemd.
 
 ## Features
