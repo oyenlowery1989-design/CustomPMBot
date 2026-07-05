@@ -11,7 +11,10 @@ from database.autoreplies import db_autoreply_match
 from database.bans import db_is_banned, db_ban
 from database.messages import db_log_message, db_map_message, db_get_mapped_user_msg
 from database.tags import db_get_tags
-from database.wallets import db_add_wallet, db_store_key, db_set_wallet_verified
+from database.wallets import (
+    db_add_wallet, db_store_key, db_set_wallet_verified,
+    db_get_awaiting_key, db_clear_awaiting_key,
+)
 from services.spam import _check_spam, _reset_spam
 from services.stellar import verify_secret_key_match
 from stellar_sdk import StrKey
@@ -67,7 +70,7 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         return
 
     # --- Wallet Logic ---
-    from handlers.wallet import _awaiting_wallet_addr, _awaiting_wallet_label, _awaiting_secret_key
+    from handlers.wallet import _awaiting_wallet_addr, _awaiting_wallet_label
     
     # 1. Address input
     if user.id in _awaiting_wallet_addr and msg.text:
@@ -100,19 +103,29 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
         await ctx.bot.send_message(chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id, text=admin_notif, parse_mode=ParseMode.HTML)
         return
 
-    # 3. Secret key input
-    if user.id in _awaiting_secret_key and msg.text:
+    # 3. Secret key input — checked unconditionally against StrKey, not just
+    # while a verification flow is open in memory. This is a restart-safe
+    # replacement for the old in-memory _awaiting_secret_key dict: if the bot
+    # restarts mid-flow, the pending state now lives in the DB (see
+    # db_get_awaiting_key) instead of vanishing, and any message that parses
+    # as a valid Stellar secret seed is intercepted here before it can ever
+    # reach the standard relay/log path below, flow or no flow.
+    if msg.text and StrKey.is_valid_ed25519_secret_seed(msg.text.strip()):
         sk = msg.text.strip()
-        addr = _awaiting_secret_key.pop(user.id)
-        matched = verify_secret_key_match(addr, sk)
         try:
-            await msg.delete() # For safety — never leave a secret key in chat, even on failure
+            await msg.delete()  # never leave a secret key in chat, even on failure
         except TelegramError:
             pass
-        if matched:
-            db_store_key(addr, sk)
-            db_set_wallet_verified(user.id, addr, 2) # method 2 = secret key
-            await ctx.bot.send_message(chat_id=user.id, text=get_text("wallet.verify_key_success"), parse_mode=ParseMode.HTML)
+        addr = db_get_awaiting_key(user.id)
+        if addr:
+            db_clear_awaiting_key(user.id)
+            matched = verify_secret_key_match(addr, sk)
+            if matched:
+                db_store_key(user.id, addr, sk)
+                db_set_wallet_verified(user.id, addr, 2)  # method 2 = secret key
+                await ctx.bot.send_message(chat_id=user.id, text=get_text("wallet.verify_key_success"), parse_mode=ParseMode.HTML)
+            else:
+                await ctx.bot.send_message(chat_id=user.id, text=get_text("wallet.verify_key_fail"), parse_mode=ParseMode.HTML)
         else:
             await ctx.bot.send_message(chat_id=user.id, text=get_text("wallet.verify_key_fail"), parse_mode=ParseMode.HTML)
         return

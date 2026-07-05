@@ -3,7 +3,7 @@ import sqlite3
 from database.connection import get_db
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -193,6 +193,33 @@ def _run_migrations(db: sqlite3.Connection) -> None:
                 pass
         log.info("Migration v9→v10: canned media columns added.")
         current = 10
+
+    if current < 11:
+        # SEC-FIX: wallet_keys was keyed by address only, so two users who
+        # add/verify the same address could silently overwrite or delete
+        # each other's encrypted secret key. Rebuild keyed by (user_id, address).
+        # pending_key_verifications persists the "awaiting secret key" flow to
+        # the DB so a bot restart mid-flow can't drop the user into the
+        # standard relay path with a live secret key still in their message.
+        db.executescript("""
+            DROP TABLE IF EXISTS wallet_keys;
+
+            CREATE TABLE IF NOT EXISTS wallet_keys (
+                user_id       INTEGER NOT NULL,
+                address       TEXT NOT NULL,
+                encrypted_key TEXT NOT NULL,
+                stored_at     TEXT,
+                PRIMARY KEY (user_id, address)
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_key_verifications (
+                user_id    INTEGER PRIMARY KEY,
+                address    TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+        """)
+        log.info("Migration v10→v11: wallet_keys keyed by (user_id, address); pending_key_verifications added.")
+        current = 11
 
     _set_schema_version(db, current)
     db.commit()

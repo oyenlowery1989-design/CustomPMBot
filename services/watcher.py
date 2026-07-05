@@ -42,7 +42,9 @@ class StellarWatcher:
         if not pending:
             return
 
-        # Filter to non-expired, build challenge → record map
+        # Filter to non-expired, group by challenge. A 6-digit challenge can
+        # collide across concurrent verifications, so keep a list per
+        # challenge rather than letting one overwrite another.
         now = datetime.now(timezone.utc)
         active = {}
         for p in pending:
@@ -50,7 +52,7 @@ class StellarWatcher:
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
             if now < expires:
-                active[p["challenge"]] = p
+                active.setdefault(p["challenge"], []).append(p)
 
         if not active:
             return
@@ -78,6 +80,7 @@ class StellarWatcher:
                 if r.get("type") != "payment":
                     continue
 
+                payer = r.get("from")
                 tx_href = r.get("_links", {}).get("transaction", {}).get("href")
                 if not tx_href:
                     continue
@@ -91,10 +94,22 @@ class StellarWatcher:
                     continue
 
                 memo = tx.get("memo", "").strip()
-                if memo not in active:
+                candidates = active.get(memo)
+                if not candidates:
                     continue
 
-                v = active[memo]
+                # The payment must actually come from the address being
+                # verified — otherwise anyone could "verify" ownership of an
+                # address they don't control by paying from their own wallet
+                # with someone else's memo.
+                v = next((c for c in candidates if c["address"] == payer), None)
+                if v is None:
+                    log.warning(
+                        "Memo %s matched a pending verification but payer %s doesn't own the claimed address — ignoring",
+                        memo, payer,
+                    )
+                    continue
+
                 db_set_wallet_verified(v["user_id"], v["address"], 1)
                 db_delete_verification(v["user_id"], v["address"])
                 log.info(
@@ -114,9 +129,10 @@ class StellarWatcher:
                         v["user_id"], e,
                     )
 
-                # Remove from active map so we don't process the same code twice
-                # if multiple matching payments somehow appear
-                del active[memo]
+                # Remove only the matched record — other pending verifications
+                # sharing this same colliding challenge code can still be
+                # confirmed by a later payment
+                candidates.remove(v)
 
     def stop(self):
         self.is_running = False

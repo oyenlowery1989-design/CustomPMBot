@@ -30,8 +30,8 @@ def db_delete_wallet(user_id: int, address: str) -> bool:
     """Delete a specific wallet for a user."""
     db = get_db()
     cur = db.execute("DELETE FROM wallets WHERE user_id=? AND address=?", (user_id, address))
-    # Also delete the key if it exists
-    db.execute("DELETE FROM wallet_keys WHERE address=?", (address,))
+    # Also delete this user's own key for it, if any (never another user's)
+    db.execute("DELETE FROM wallet_keys WHERE user_id=? AND address=?", (user_id, address))
     db.commit()
     return cur.rowcount > 0
 
@@ -46,21 +46,53 @@ def db_set_wallet_verified(user_id: int, address: str, method: int) -> None:
     )
     get_db().commit()
 
-def db_store_key(address: str, secret_key: str) -> None:
-    """Encrypt and store a wallet secret key."""
+def db_store_key(user_id: int, address: str, secret_key: str) -> None:
+    """Encrypt and store a wallet secret key, scoped to the owning user."""
     encrypted = encrypt_key(secret_key)
     get_db().execute(
-        "INSERT OR REPLACE INTO wallet_keys (address, encrypted_key, stored_at) VALUES (?,?,?)",
-        (address, encrypted, _now_iso()),
+        "INSERT OR REPLACE INTO wallet_keys (user_id, address, encrypted_key, stored_at) VALUES (?,?,?,?)",
+        (user_id, address, encrypted, _now_iso()),
     )
     get_db().commit()
 
-def db_get_key(address: str) -> Optional[str]:
-    """Retrieve and decrypt a wallet secret key."""
-    row = get_db().execute("SELECT encrypted_key FROM wallet_keys WHERE address=?", (address,)).fetchone()
+def db_get_key(user_id: int, address: str) -> Optional[str]:
+    """Retrieve and decrypt a wallet secret key, scoped to the owning user."""
+    row = get_db().execute(
+        "SELECT encrypted_key FROM wallet_keys WHERE user_id=? AND address=?", (user_id, address)
+    ).fetchone()
     if row:
         return decrypt_key(row["encrypted_key"])
     return None
+
+def db_set_awaiting_key(user_id: int, address: str) -> None:
+    """Persist that a user is mid-flow entering a secret key for `address` (15 min expiry)."""
+    from datetime import datetime, timezone, timedelta
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+    get_db().execute(
+        "INSERT OR REPLACE INTO pending_key_verifications (user_id, address, expires_at) VALUES (?,?,?)",
+        (user_id, address, expires),
+    )
+    get_db().commit()
+
+def db_get_awaiting_key(user_id: int) -> Optional[str]:
+    """Return the address a user is entering a secret key for, or None if absent/expired."""
+    from datetime import datetime, timezone
+    row = get_db().execute(
+        "SELECT address, expires_at FROM pending_key_verifications WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if not row:
+        return None
+    expires = datetime.fromisoformat(row["expires_at"])
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) >= expires:
+        db_clear_awaiting_key(user_id)
+        return None
+    return row["address"]
+
+def db_clear_awaiting_key(user_id: int) -> None:
+    get_db().execute("DELETE FROM pending_key_verifications WHERE user_id=?", (user_id,))
+    get_db().commit()
 
 def db_get_wallet_count(user_id: int) -> int:
     row = get_db().execute("SELECT COUNT(*) c FROM wallets WHERE user_id=?", (user_id,)).fetchone()

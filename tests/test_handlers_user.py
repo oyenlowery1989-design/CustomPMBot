@@ -14,6 +14,7 @@ from database.settings import db_set_setting
 from database.users import db_upsert_user, db_get_user
 from database.wallets import (
     db_add_wallet, db_get_user_wallets, db_get_pending_verifications,
+    db_set_awaiting_key, db_get_awaiting_key,
 )
 from tests.conftest import (
     ADMIN_GROUP_ID, make_bot, make_callback_query, make_context, make_message,
@@ -136,12 +137,12 @@ class TestCancel:
     async def test_clears_all_pending_state(self, bot, tg_user):
         wallet_mod._awaiting_wallet_addr.add(tg_user.id)
         wallet_mod._awaiting_wallet_label[tg_user.id] = VALID_ADDR
-        wallet_mod._awaiting_secret_key[tg_user.id] = VALID_ADDR
+        db_set_awaiting_key(tg_user.id, VALID_ADDR)
         update = make_update(user=tg_user, message=make_message("/cancel"))
         await cmd_cancel(update, make_context(bot))
         assert tg_user.id not in wallet_mod._awaiting_wallet_addr
         assert tg_user.id not in wallet_mod._awaiting_wallet_label
-        assert tg_user.id not in wallet_mod._awaiting_secret_key
+        assert db_get_awaiting_key(tg_user.id) is None
 
 
 class TestWalletCallbacks:
@@ -205,7 +206,21 @@ class TestWalletCallbacks:
         wid = db_get_user_wallets(tg_user.id)[0]["id"]
         q = make_callback_query(tg_user, data=f"v_k_{wid}")
         await cb_verify_key(make_update(user=tg_user, callback_query=q), make_context(bot))
-        assert wallet_mod._awaiting_secret_key[tg_user.id] == VALID_ADDR
+        assert db_get_awaiting_key(tg_user.id) == VALID_ADDR
+
+    async def test_cannot_start_memo_verify_on_others_wallet(self, bot, tg_user):
+        db_add_wallet(999, VALID_ADDR)
+        wid = db_get_user_wallets(999)[0]["id"]
+        q = make_callback_query(tg_user, data=f"v_m_{wid}")
+        await cb_verify_memo(make_update(user=tg_user, callback_query=q), make_context(bot))
+        assert db_get_pending_verifications() == []
+
+    async def test_cannot_start_key_verify_on_others_wallet(self, bot, tg_user):
+        db_add_wallet(999, VALID_ADDR)
+        wid = db_get_user_wallets(999)[0]["id"]
+        q = make_callback_query(tg_user, data=f"v_k_{wid}")
+        await cb_verify_key(make_update(user=tg_user, callback_query=q), make_context(bot))
+        assert db_get_awaiting_key(tg_user.id) is None
 
 
 class TestSettingsCallbacks:

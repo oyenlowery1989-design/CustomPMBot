@@ -125,8 +125,8 @@ def _make_watcher(payment_records, tx_memo):
     return watcher
 
 
-def _payment_record():
-    return {"type": "payment",
+def _payment_record(from_addr=ADDR):
+    return {"type": "payment", "from": from_addr,
             "_links": {"transaction": {"href": "https://horizon/tx/1"}}}
 
 
@@ -222,6 +222,46 @@ class TestWatcher:
                             lambda **kw: _FakeAsyncClient("123456"))
         await watcher._check_payments()
         assert db_get_user_wallets(1)[0]["verified"] == 0
+
+    async def test_payer_mismatch_ignored(self, monkeypatch):
+        """SEC-FIX regression: a payment with the right memo but sent from a
+        wallet other than the one being verified must not grant verification —
+        otherwise anyone could pay from their own wallet to claim someone
+        else's address."""
+        import services.watcher as watcher_mod
+        db_add_wallet(1, ADDR)
+        db_create_verification(1, ADDR, "123456")
+
+        attacker_addr = "G" + "Z" * 55
+        watcher = _make_watcher([_payment_record(from_addr=attacker_addr)], "123456")
+        monkeypatch.setattr(watcher_mod.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient("123456"))
+        await watcher._check_payments()
+
+        assert db_get_user_wallets(1)[0]["verified"] == 0
+        assert len(db_get_pending_verifications()) == 1
+        watcher.bot.send_message.assert_not_awaited()
+
+    async def test_colliding_challenges_resolved_by_payer(self, monkeypatch):
+        """Two different users' verifications can land on the same 6-digit
+        challenge code; the correct one must be matched by payer address and
+        the other must remain pending, not silently lost."""
+        import services.watcher as watcher_mod
+        addr2 = "G" + "B" * 55
+        db_add_wallet(1, ADDR)
+        db_add_wallet(2, addr2)
+        db_create_verification(1, ADDR, "123456")
+        db_create_verification(2, addr2, "123456")
+
+        watcher = _make_watcher([_payment_record(from_addr=addr2)], "123456")
+        monkeypatch.setattr(watcher_mod.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient("123456"))
+        await watcher._check_payments()
+
+        assert db_get_user_wallets(2)[0]["verified"] == 1
+        assert db_get_user_wallets(1)[0]["verified"] == 0
+        remaining = db_get_pending_verifications()
+        assert len(remaining) == 1 and remaining[0]["user_id"] == 1
 
     async def test_horizon_failure_is_contained(self):
         db_add_wallet(1, ADDR)

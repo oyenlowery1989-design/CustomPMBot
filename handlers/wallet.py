@@ -10,9 +10,9 @@ from config import ADMIN_IDS, VERIFY_WALLET_PUBLIC, log, ADMIN_GROUP_ID
 from database.users import db_get_user, db_set_broadcast_opt, db_upsert_user
 from database.settings import db_get_setting
 from database.wallets import (
-    db_get_user_wallets, db_add_wallet, db_delete_wallet, 
+    db_get_user_wallets, db_delete_wallet,
     db_get_wallet_count, db_create_verification, db_all_wallets,
-    db_get_wallet_by_id, db_store_key, db_set_wallet_verified
+    db_get_wallet_by_id, db_set_awaiting_key, db_clear_awaiting_key
 )
 from utils.helpers import _is_admin
 from utils.strings import get_text
@@ -22,7 +22,6 @@ log = logging.getLogger("nopmsbot")
 # In-memory state
 _awaiting_wallet_addr = set()
 _awaiting_wallet_label = {}
-_awaiting_secret_key = {}
 
 def _user_link(user_id: int, name: str) -> str:
     return f'<a href="tg://user?id={user_id}">{html.escape(name)}</a>'
@@ -52,7 +51,7 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not user: return
     _awaiting_wallet_addr.discard(user.id)
     _awaiting_wallet_label.pop(user.id, None)
-    _awaiting_secret_key.pop(user.id, None)
+    db_clear_awaiting_key(user.id)
     await update.message.reply_text("Action cancelled.")
 
 async def _show_wallet_menu(msg_obj, user_id: int, is_edit: bool = False):
@@ -145,7 +144,7 @@ async def cb_verify_memo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     try:
         w_id = int(q.data.replace("v_m_", ""))
         wallet = db_get_wallet_by_id(w_id)
-        if not wallet: return
+        if not wallet or wallet["user_id"] != q.from_user.id: return
         challenge = ''.join(random.choices(string.digits, k=6))
         db_create_verification(q.from_user.id, wallet["address"], challenge)
         text = get_text("wallet.verify_memo_instructions", verify_addr=VERIFY_WALLET_PUBLIC, challenge=challenge)
@@ -160,8 +159,8 @@ async def cb_verify_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         w_id = int(q.data.replace("v_k_", ""))
         wallet = db_get_wallet_by_id(w_id)
-        if not wallet: return
-        _awaiting_secret_key[q.from_user.id] = wallet["address"]
+        if not wallet or wallet["user_id"] != q.from_user.id: return
+        db_set_awaiting_key(q.from_user.id, wallet["address"])
         await q.edit_message_text(get_text("wallet.verify_key_prompt"), parse_mode=ParseMode.HTML)
     except: pass
 

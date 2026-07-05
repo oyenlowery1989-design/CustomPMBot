@@ -18,7 +18,7 @@ from database.users import (
     db_upsert_user, db_get_user, db_set_topic, db_set_relay_paused,
     db_mark_blocked, db_get_all_subscribers,
 )
-from database.wallets import db_get_user_wallets, db_get_key
+from database.wallets import db_get_user_wallets, db_get_key, db_set_awaiting_key
 from tests.conftest import (
     ADMIN_GROUP_ID, make_bot, make_context, make_message, make_tg_user, make_update,
 )
@@ -169,23 +169,34 @@ class TestWalletInputFlow:
         kp = Keypair.random()
         from database.wallets import db_add_wallet
         db_add_wallet(tg_user.id, kp.public_key)
-        wallet_mod._awaiting_secret_key[tg_user.id] = kp.public_key
+        db_set_awaiting_key(tg_user.id, kp.public_key)
         msg = make_message(kp.secret)
         await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
         msg.delete.assert_awaited_once()  # secret never left in chat
         assert db_get_user_wallets(tg_user.id)[0]["verified"] == 2
-        assert db_get_key(kp.public_key) == kp.secret
+        assert db_get_key(tg_user.id, kp.public_key) == kp.secret
 
     async def test_wrong_secret_key_fails_but_still_deletes(self, bot, tg_user):
         kp = Keypair.random()
         from database.wallets import db_add_wallet
         db_add_wallet(tg_user.id, kp.public_key)
-        wallet_mod._awaiting_secret_key[tg_user.id] = kp.public_key
+        db_set_awaiting_key(tg_user.id, kp.public_key)
         msg = make_message(Keypair.random().secret)
         await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
         msg.delete.assert_awaited_once()
         assert db_get_user_wallets(tg_user.id)[0]["verified"] == 0
-        assert db_get_key(kp.public_key) is None
+        assert db_get_key(tg_user.id, kp.public_key) is None
+
+    async def test_pasted_secret_key_deleted_even_without_awaiting_flow(self, bot, tg_user):
+        """Defense in depth: a valid Stellar secret seed is always intercepted
+        and deleted, even if the user never started the verify-by-key flow —
+        it must never reach the relay/log path."""
+        kp = Keypair.random()
+        msg = make_message(kp.secret)
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+        msg.delete.assert_awaited_once()
+        msg.forward.assert_not_awaited()
+        assert db_get_key(tg_user.id, kp.public_key) is None
 
 
 class TestAdminGroupMessage:

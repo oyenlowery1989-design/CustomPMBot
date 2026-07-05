@@ -47,7 +47,6 @@ def reset_module_state():
     broadcast._pending_broadcasts.clear()
     wallet._awaiting_wallet_addr.clear()
     wallet._awaiting_wallet_label.clear()
-    wallet._awaiting_secret_key.clear()
     spam._spam_timestamps.clear()
     spam._spam_warnings.clear()
     strings._texts_cache.clear()

@@ -27,7 +27,7 @@ from database.wallets import (
     db_add_wallet, db_get_user_wallets, db_delete_wallet, db_set_wallet_verified,
     db_store_key, db_get_key, db_get_wallet_count, db_get_wallet_by_id,
     db_create_verification, db_get_pending_verifications, db_delete_verification,
-    db_all_wallets,
+    db_all_wallets, db_set_awaiting_key, db_get_awaiting_key, db_clear_awaiting_key,
 )
 from tests.conftest import make_tg_user
 
@@ -50,7 +50,7 @@ class TestMigrations:
         expected = {"settings", "users", "bans", "messages", "tags", "canned",
                     "custom_topics", "topic_bindings", "wallets", "wallet_keys",
                     "wallet_verifications", "scheduled_broadcasts",
-                    "message_map", "auto_replies"}
+                    "message_map", "auto_replies", "pending_key_verifications"}
         assert expected <= tables
 
     def test_rerun_is_idempotent(self, fresh_db):
@@ -377,10 +377,10 @@ class TestWallets:
 
     def test_delete_removes_wallet_and_key(self, fresh_db):
         db_add_wallet(1, self.ADDR)
-        db_store_key(self.ADDR, "SSECRET123")
+        db_store_key(1, self.ADDR, "SSECRET123")
         assert db_delete_wallet(1, self.ADDR) is True
         assert db_get_user_wallets(1) == []
-        assert db_get_key(self.ADDR) is None
+        assert db_get_key(1, self.ADDR) is None
         assert fresh_db.execute("SELECT COUNT(*) c FROM wallet_keys").fetchone()["c"] == 0
 
     def test_set_verified(self):
@@ -392,13 +392,43 @@ class TestWallets:
 
     def test_key_encrypted_at_rest_and_roundtrips(self, fresh_db):
         secret = "SBTESTSECRETKEYVALUE"
-        db_store_key(self.ADDR, secret)
+        db_store_key(1, self.ADDR, secret)
         stored = fresh_db.execute("SELECT encrypted_key FROM wallet_keys").fetchone()["encrypted_key"]
         assert secret not in stored  # never plaintext in DB
-        assert db_get_key(self.ADDR) == secret
+        assert db_get_key(1, self.ADDR) == secret
 
     def test_get_key_missing(self):
-        assert db_get_key("GNOPE") is None
+        assert db_get_key(1, "GNOPE") is None
+
+    def test_keys_isolated_per_user_same_address(self, fresh_db):
+        """SEC-FIX regression: two users sharing an address must not be able
+        to read, overwrite, or delete each other's stored key."""
+        db_add_wallet(1, self.ADDR)
+        db_add_wallet(2, self.ADDR)
+        db_store_key(1, self.ADDR, "SUSER1SECRET")
+        db_store_key(2, self.ADDR, "SUSER2SECRET")
+        assert db_get_key(1, self.ADDR) == "SUSER1SECRET"
+        assert db_get_key(2, self.ADDR) == "SUSER2SECRET"
+
+        db_delete_wallet(1, self.ADDR)
+        assert db_get_key(1, self.ADDR) is None
+        assert db_get_key(2, self.ADDR) == "SUSER2SECRET"  # untouched
+
+    def test_awaiting_key_lifecycle(self):
+        assert db_get_awaiting_key(1) is None
+        db_set_awaiting_key(1, self.ADDR)
+        assert db_get_awaiting_key(1) == self.ADDR
+        db_clear_awaiting_key(1)
+        assert db_get_awaiting_key(1) is None
+
+    def test_awaiting_key_expires(self, fresh_db):
+        db_set_awaiting_key(1, self.ADDR)
+        fresh_db.execute(
+            "UPDATE pending_key_verifications SET expires_at=? WHERE user_id=1",
+            (_past(),),
+        )
+        fresh_db.commit()
+        assert db_get_awaiting_key(1) is None
 
     def test_wallet_by_id(self):
         db_add_wallet(1, self.ADDR)
