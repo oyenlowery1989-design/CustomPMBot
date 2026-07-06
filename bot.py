@@ -17,6 +17,7 @@ from handlers.broadcast import (
     cb_broadcast_confirm, cb_broadcast_cancel,
 )
 from handlers.topics import cmd_topic, cmd_close, cmd_reopen, cmd_note
+from handlers.ai_reply import cmd_ai, cb_ai_draft, cb_ai_send, cb_ai_edit, cb_ai_dismiss
 from handlers.autoreply import cmd_autoreply
 from handlers.tags import cmd_tag
 from handlers.export import cmd_export
@@ -114,6 +115,7 @@ async def post_init(app: Application) -> None:
         BotCommand("close", "Archive topic"),
         BotCommand("reopen", "Reopen topic"),
         BotCommand("note", "Pin a note"),
+        BotCommand("ai", "AI-drafted reply settings"),
     ]
     try:
         await app.bot.set_my_commands(admin_cmds, scope=BotCommandScopeChat(chat_id=ADMIN_GROUP_ID))
@@ -185,6 +187,7 @@ def main() -> None:
     app.add_handler(CommandHandler("close", cmd_close, filters=admin_filter))
     app.add_handler(CommandHandler("reopen", cmd_reopen, filters=admin_filter))
     app.add_handler(CommandHandler("note", cmd_note, filters=admin_filter))
+    app.add_handler(CommandHandler("ai", cmd_ai, filters=admin_filter))
 
     # Callbacks
     app.add_handler(CallbackQueryHandler(cb_wallet_add, pattern="^wallet_add$"))
@@ -200,6 +203,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(cb_appeal, pattern="^appeal_"))
     app.add_handler(CallbackQueryHandler(cb_broadcast_confirm, pattern="^bc_go_"))
     app.add_handler(CallbackQueryHandler(cb_broadcast_cancel, pattern="^bc_no_"))
+    app.add_handler(CallbackQueryHandler(cb_ai_draft, pattern="^ai_draft_"))
+    app.add_handler(CallbackQueryHandler(cb_ai_send, pattern="^ad_s_"))
+    app.add_handler(CallbackQueryHandler(cb_ai_edit, pattern="^ad_e_"))
+    app.add_handler(CallbackQueryHandler(cb_ai_dismiss, pattern="^ad_d_"))
 
     # Relay Handlers
     app.add_handler(MessageHandler(dm_filter & ~filters.COMMAND, handle_private_message))

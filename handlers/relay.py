@@ -10,6 +10,8 @@ from database.autoreplies import db_autoreply_match
 from database.bans import db_is_banned, db_ban
 from database.messages import db_log_message, db_map_message, db_get_mapped_user_msg
 from database.tags import db_get_tags
+from database.settings import db_get_setting
+from database.ai_drafts import db_get_awaiting_edit_draft, db_update_draft_text, db_set_draft_status
 from database.wallets import (
     db_add_wallet, db_store_key, db_set_wallet_verified,
     db_get_awaiting_key, db_clear_awaiting_key,
@@ -158,6 +160,17 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
     if fwd:
         # Reply threading: admin replying to this forward quotes the original
         db_map_message(user.id, msg.message_id, fwd.message_id)
+
+    # Optional AI-drafted reply button — only when an admin has opted in via
+    # /ai on. forwardMessage has no reply_markup field, so this is a small
+    # follow-up message replying to the forward instead of a button on it.
+    if fwd and db_get_setting("ai_enabled", "off") == "on":
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🤖 Draft reply", callback_data=f"ai_draft_{user.id}_{fwd.message_id}")]])
+        await ctx.bot.send_message(
+            chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
+            text="🤖", reply_markup=keyboard, reply_to_message_id=fwd.message_id,
+        )
+
     ct = _content_type_of(msg)
     db_log_message(user.id, "in", ct, msg.text or msg.caption or "")
 
@@ -180,6 +193,22 @@ async def handle_admin_group_message(update: Update, ctx: ContextTypes.DEFAULT_T
     if not sender or sender.id not in ADMIN_IDS: return
 
     thread_id = msg.message_thread_id
+
+    # AI draft edit intercept — must run before the broadcast-topic check and
+    # the normal reply-to-forward logic below: if this topic has a pending
+    # "awaiting_edit" draft, the admin's next message here IS the corrected
+    # reply, not a normal admin message. Same "check first, fall through only
+    # if not intercepted" shape as the wallet secret-key intercept in
+    # handle_private_message.
+    awaiting = db_get_awaiting_edit_draft(thread_id)
+    if awaiting:
+        corrected = msg.text or msg.caption or ""
+        await ctx.bot.send_message(chat_id=awaiting["user_id"], text=corrected)
+        db_log_message(awaiting["user_id"], "out", "text", corrected)
+        db_update_draft_text(awaiting["id"], corrected)
+        db_set_draft_status(awaiting["id"], "edited")
+        return
+
     from handlers.broadcast import _find_broadcast_topic, _do_broadcast, _stage_broadcast, _resolve_recipients
     broadcast_tid = await _find_broadcast_topic(ctx.bot)
 

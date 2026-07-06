@@ -11,6 +11,7 @@ from config import SPAM_MAX_MSGS
 from handlers.relay import _ensure_topic, handle_private_message, handle_admin_group_message
 from handlers.broadcast import _find_broadcast_topic, _do_broadcast
 import handlers.broadcast as broadcast_mod
+from database.ai_drafts import db_create_draft, db_get_draft, db_set_draft_status
 from database.bans import db_ban, db_is_banned
 from database.messages import db_export_messages
 from database.settings import db_get_setting, db_set_setting
@@ -111,6 +112,25 @@ class TestHandlePrivateMessage:
         await handle_private_message(make_update(user=tg_user, message=ban_msg), ctx)
         ban_msg.reply_text.assert_awaited_once()
         assert db_is_banned(tg_user.id)
+
+
+class TestAiDraftButton:
+    async def test_attached_when_ai_enabled_on(self, bot, tg_user):
+        db_set_setting("ai_enabled", "on")
+        msg = make_message("need help")
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+        draft_calls = [c for c in bot.send_message.await_args_list
+                       if c.kwargs.get("text") == "🤖" and c.kwargs.get("reply_markup")]
+        assert len(draft_calls) == 1
+        buttons = [b for row in draft_calls[0].kwargs["reply_markup"].inline_keyboard for b in row]
+        assert len(buttons) == 1
+        assert buttons[0].callback_data == f"ai_draft_{tg_user.id}_8800"
+        assert draft_calls[0].kwargs["reply_to_message_id"] == 8800
+
+    async def test_absent_when_ai_off_by_default(self, bot, tg_user):
+        msg = make_message("need help")
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+        assert all(c.kwargs.get("text") != "🤖" for c in bot.send_message.await_args_list)
 
 
 class TestWalletInputFlow:
@@ -243,6 +263,60 @@ class TestAdminGroupMessage:
                  if c.kwargs.get("chat_id") == tg_user.id]
         assert len(sends) == 1
         assert sends[0].kwargs["text"] == "big news"
+
+    async def test_no_pending_ai_edit_falls_through_to_normal_relay(self, bot, tg_user):
+        """AI-draft edit intercept sits ahead of the normal relay path in
+        handle_admin_group_message; with no draft awaiting_edit in this
+        topic, an ordinary admin reply must behave exactly as before."""
+        db_upsert_user(tg_user, topic_id=55)
+        admin = make_tg_user(ADMIN_ID)
+        msg = make_message("we can help", thread_id=55)
+        await handle_admin_group_message(make_update(user=admin, message=msg, chat_type="group"),
+                                         make_context(bot))
+        sends = [c for c in bot.send_message.await_args_list
+                 if c.kwargs.get("chat_id") == tg_user.id]
+        assert len(sends) == 1
+        assert sends[0].kwargs["text"] == "we can help"
+        assert db_export_messages(tg_user.id)[0]["direction"] == "out"
+
+    async def test_awaiting_ai_edit_intercepts_next_admin_message(self, bot, tg_user):
+        db_upsert_user(tg_user, topic_id=55)
+        draft_id = db_create_draft(tg_user.id, 55, "original draft")
+        db_set_draft_status(draft_id, "awaiting_edit")
+
+        admin = make_tg_user(ADMIN_ID)
+        msg = make_message("corrected reply text", thread_id=55)
+        await handle_admin_group_message(make_update(user=admin, message=msg, chat_type="group"),
+                                         make_context(bot))
+
+        sends = [c for c in bot.send_message.await_args_list
+                 if c.kwargs.get("chat_id") == tg_user.id]
+        assert len(sends) == 1
+        assert sends[0].kwargs["text"] == "corrected reply text"
+        logged = db_export_messages(tg_user.id)
+        assert logged[0]["direction"] == "out"
+        assert logged[0]["text"] == "corrected reply text"
+        row = db_get_draft(draft_id)
+        assert row["status"] == "edited"
+        assert row["draft_text"] == "corrected reply text"
+
+    async def test_awaiting_ai_edit_takes_priority_over_broadcast_topic(self, bot, tg_user):
+        """Ordering guard: the intercept must run before the broadcast-topic
+        check, exactly like the wallet secret-key intercept ordering already
+        enforced in handle_private_message."""
+        db_set_setting("broadcast_topic_id", "55")
+        db_upsert_user(tg_user, topic_id=55)
+        draft_id = db_create_draft(tg_user.id, 55, "original draft")
+        db_set_draft_status(draft_id, "awaiting_edit")
+
+        admin = make_tg_user(ADMIN_ID)
+        msg = make_message("corrected text", thread_id=55)
+        await handle_admin_group_message(make_update(user=admin, message=msg, chat_type="group"),
+                                         make_context(bot))
+        assert db_get_draft(draft_id)["status"] == "edited"
+        sends = [c for c in bot.send_message.await_args_list
+                 if c.kwargs.get("chat_id") == tg_user.id]
+        assert len(sends) == 1  # went straight to the user, never treated as a broadcast blast
 
 
 class TestFindBroadcastTopic:

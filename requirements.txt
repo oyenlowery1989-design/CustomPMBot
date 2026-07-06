@@ -3,3 +3,4 @@ apscheduler
 stellar-sdk
 cryptography
 httpx
+anthropic

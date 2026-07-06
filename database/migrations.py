@@ -2,7 +2,7 @@ import logging
 import sqlite3
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -255,6 +255,22 @@ def _run_migrations(db: sqlite3.Connection) -> None:
             "added; backfilled %d of %d legacy key(s).", backfilled, len(old_keys),
         )
         current = 11
+
+    if current < 12:
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS ai_drafts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER NOT NULL,
+                topic_id      INTEGER NOT NULL,   -- admin-group message_thread_id the draft lives in
+                topic_msg_id  INTEGER,            -- message_id of the draft message itself (for editing/removing buttons)
+                draft_text    TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | edited | dismissed | awaiting_edit
+                created_at    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_drafts_topic ON ai_drafts(topic_id, status);
+        """)
+        log.info("Migration v11→v12: ai_drafts table added (AI-drafted replies).")
+        current = 12
 
     _set_schema_version(db, current)
     db.commit()

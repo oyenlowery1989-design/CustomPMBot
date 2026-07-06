@@ -27,6 +27,10 @@ SPAM_BAN_DURATION = 86400
 VERIFY_WALLET_PUBLIC = os.environ.get("VERIFY_WALLET_PUBLIC")
 WALLET_ENCRYPTION_KEY = os.environ.get("WALLET_ENCRYPTION_KEY")
 
+# AI Config
+AI_API_KEY = os.environ.get("AI_API_KEY")
+AI_MODEL = os.environ.get("AI_MODEL", "claude-haiku-4-5")
+
 # Logging
 logging.basicConfig(
     level=logging.INFO,
