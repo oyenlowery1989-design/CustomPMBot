@@ -63,7 +63,7 @@
 ## v3.0 — Future Ideas
 
 ### High Priority
-- [ ] **AI-drafted replies with human approval** — see design below
+- [x] **AI-drafted replies with human approval** — v1 shipped 2026-07-05 (Anthropic only, manual "Draft reply" button per message; see `docs/superpowers/specs/2026-07-05-ai-drafted-replies-design.md`). Still open for a later pass: `/ai rules` hard-refusal list, few-shot learning from edited drafts, multi-provider (OpenAI/Gemini) support.
 - [ ] Web dashboard (user list, stats, ban management)
 - [x] Scheduled broadcasts — `/schedule <duration> <message>` + list/cancel/history (2026-07-05)
 - [x] Inline reply preview — admin reply to a forwarded message quotes the user's original (message_map, v9)
@@ -136,5 +136,5 @@ message passes a human.
 - **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 11
+- **Schema version:** 12
 - **Deploy:** `sudo bash deploy/deploy.sh` on the VPS (see docs/DEPLOY.md); handles legacy→git migration, DB backup, systemd unit

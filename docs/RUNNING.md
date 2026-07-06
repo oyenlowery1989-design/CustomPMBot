@@ -92,12 +92,17 @@ Full guide incl. token rotation and rollback: [DEPLOY.md](DEPLOY.md).
 
 ## 8. AI-drafted replies — provider setup
 
-> **Status: designed, not yet built** (see TODO.md → v3.0). This section is the
-> configuration reference so you can pick a provider and get a key ready.
-> The AI never messages users directly — it posts a draft in the admin topic
-> with ✅ Send / ✏️ Edit / ❌ Dismiss buttons.
+> **Status: v1 shipped 2026-07-05, Anthropic only** (see TODO.md → v3.0 and
+> `docs/superpowers/specs/2026-07-05-ai-drafted-replies-design.md`). Admin taps
+> "🤖 Draft reply" on a forwarded message; the AI never messages users
+> directly — it posts a draft in the topic with ✅ Send / ✏️ Edit / ❌ Dismiss
+> buttons. Set `AI_API_KEY` (and optionally `AI_MODEL`, default
+> `claude-haiku-4-5`) and use `/ai on` to enable it.
+>
+> The multi-provider `AI_PROVIDER` switch below is the **future** design —
+> only Option A (Anthropic) is actually implemented right now.
 
-The feature is provider-agnostic — one env-var switch:
+The feature is provider-agnostic in the long-term design — one env-var switch:
 
 ```bash
 export AI_PROVIDER="anthropic"        # anthropic | openai | gemini
