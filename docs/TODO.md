@@ -136,6 +136,5 @@ message passes a human.
 - **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 10
-- ⚠️ Bot token needs rotation (was shared in chat) — step 0 of docs/DEPLOY.md
+- **Schema version:** 11
 - **Deploy:** `sudo bash deploy/deploy.sh` on the VPS (see docs/DEPLOY.md); handles legacy→git migration, DB backup, systemd unit
