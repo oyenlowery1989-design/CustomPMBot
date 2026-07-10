@@ -12,6 +12,13 @@ from database.canned import db_canned_list
 from services.ai_draft import generate_draft
 from utils.helpers import _is_admin
 
+TELEGRAM_MAX_TEXT = 4096
+
+# Topics currently generating a draft — guards against a double-press of
+# "Draft reply" firing two concurrent (paid) Anthropic calls and posting two
+# draft cards for the same message.
+_drafting_topics = set()
+
 async def cmd_ai(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or not _is_admin(update.effective_user.id, ADMIN_IDS): return
     args = ctx.args or []
@@ -53,6 +60,15 @@ async def cmd_ai(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cb_ai_draft(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
+
+    topic_id = q.message.message_thread_id
+    if topic_id in _drafting_topics:
+        await q.answer("Already drafting a reply for this topic…")
+        return
+
     await q.answer()
     try:
         rest = q.data.replace("ai_draft_", "", 1)
@@ -63,47 +79,76 @@ async def cb_ai_draft(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("cb_ai_draft: bad callback data %r: %s", q.data, e)
         return
 
-    topic_id = q.message.message_thread_id
+    _drafting_topics.add(topic_id)
+    try:
+        guidelines = db_get_setting("ai_guidelines", "")
+        # db_export_messages returns newest-first; reverse so the model sees the
+        # conversation oldest-first. Both this and db_canned_list return
+        # sqlite3.Row objects — convert to plain tuples here, generate_draft()
+        # itself must not know about the DB layer.
+        rows = list(reversed(db_export_messages(user_id, limit=10)))
+        conversation = [(r["direction"], r["text"]) for r in rows]
+        canned_responses = [(r["name"], r["body"]) for r in db_canned_list()]
 
-    guidelines = db_get_setting("ai_guidelines", "")
-    # db_export_messages returns newest-first; reverse so the model sees the
-    # conversation oldest-first. Both this and db_canned_list return
-    # sqlite3.Row objects — convert to plain tuples here, generate_draft()
-    # itself must not know about the DB layer.
-    rows = list(reversed(db_export_messages(user_id, limit=10)))
-    conversation = [(r["direction"], r["text"]) for r in rows]
-    canned_responses = [(r["name"], r["body"]) for r in db_canned_list()]
+        result = await generate_draft(guidelines, conversation, canned_responses)
 
-    result = generate_draft(guidelines, conversation, canned_responses)
+        if result["action"] == "escalate":
+            reason = result["reason"] or "AI draft unavailable"
+            await ctx.bot.send_message(
+                chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
+                text=f"🤖 {reason}",
+            )
+            return
 
-    if result["action"] == "escalate":
-        reason = result["reason"] or "AI draft unavailable"
-        await ctx.bot.send_message(
-            chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
-            text=f"🤖 {reason}",
-        )
-        return
-
-    draft_id = db_create_draft(user_id, topic_id, result["text"])
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Send", callback_data=f"ad_s_{draft_id}"),
-        InlineKeyboardButton("✏️ Edit", callback_data=f"ad_e_{draft_id}"),
-        InlineKeyboardButton("❌ Dismiss", callback_data=f"ad_d_{draft_id}"),
-    ]])
-    sent = await ctx.bot.send_message(
-        chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
-        text=result["text"], reply_markup=keyboard, reply_to_message_id=fwd_msg_id,
-    )
-    db_set_draft_topic_msg_id(draft_id, sent.message_id)
+        draft_text = result["text"][:TELEGRAM_MAX_TEXT]
+        draft_id = db_create_draft(user_id, topic_id, draft_text)
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Send", callback_data=f"ad_s_{draft_id}"),
+            InlineKeyboardButton("✏️ Edit", callback_data=f"ad_e_{draft_id}"),
+            InlineKeyboardButton("❌ Dismiss", callback_data=f"ad_d_{draft_id}"),
+        ]])
+        # Labeled distinctly from a normal admin/relay message so nobody
+        # mistakes an unreviewed AI draft for something already sent to the
+        # user — draft_text itself (what actually gets relayed on Send)
+        # stays unlabeled (L10, docs/AUDIT-2026-07-10.md).
+        card_text = f"🤖 DRAFT — review before sending:\n\n{draft_text}"
+        try:
+            sent = await ctx.bot.send_message(
+                chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
+                text=card_text, reply_markup=keyboard, reply_to_message_id=fwd_msg_id,
+            )
+        except Exception as e:
+            # Send failed (Telegram error, blocked chat, etc.) — without this,
+            # the row stays "pending" with topic_msg_id=NULL forever, invisible
+            # to admins (H6, docs/AUDIT-2026-07-10.md).
+            log.error("cb_ai_draft: failed to post draft %s: %s", draft_id, e)
+            db_set_draft_status(draft_id, "failed")
+            await ctx.bot.send_message(
+                chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id,
+                text="⚠️ Failed to post AI draft — try again.",
+            )
+            return
+        db_set_draft_topic_msg_id(draft_id, sent.message_id)
+    finally:
+        _drafting_topics.discard(topic_id)
 
 async def cb_ai_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
     try:
         draft_id = int(q.data.replace("ad_s_", ""))
         draft = db_get_draft(draft_id)
         if not draft:
             await q.answer("Draft not found")
+            return
+        if draft["status"] != "pending":
+            # Already sent/edited/dismissed — a double-press (or a retry
+            # after a slow first tap) must not send the customer a duplicate
+            # message (M4, docs/AUDIT-2026-07-10.md).
+            await q.answer("Already handled")
             return
         await ctx.bot.send_message(chat_id=draft["user_id"], text=draft["draft_text"])
         db_log_message(draft["user_id"], "out", "text", draft["draft_text"])
@@ -120,6 +165,9 @@ async def cb_ai_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cb_ai_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
     try:
         draft_id = int(q.data.replace("ad_e_", ""))
         db_set_draft_status(draft_id, "awaiting_edit")
@@ -132,6 +180,9 @@ async def cb_ai_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cb_ai_dismiss(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q: return
+    if q.from_user.id not in ADMIN_IDS:
+        await q.answer("Admins only")
+        return
     try:
         draft_id = int(q.data.replace("ad_d_", ""))
         db_set_draft_status(draft_id, "dismissed")

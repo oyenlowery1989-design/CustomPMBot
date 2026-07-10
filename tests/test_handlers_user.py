@@ -124,7 +124,10 @@ class TestWalletMenu:
         update = make_update(user=admin, message=make_message("/wallets"), chat_type="group")
         await cmd_wallets(update, make_context(bot))
         text = update.message.reply_text.await_args.args[0]
-        assert "G" + "A" * 55 in text
+        # Masked like the per-user wallet menu (L2, docs/AUDIT-2026-07-10.md)
+        # — the full address is never shown, even to admins.
+        assert "G" + "A" * 55 not in text
+        assert "GAAAAA...AAAA" in text
         assert "Fun&lt;d&gt;s" in text  # labels HTML-escaped
 
     async def test_wallets_non_admin_ignored(self, bot, tg_user):

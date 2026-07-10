@@ -1,5 +1,7 @@
+import asyncio
 import html
 import random
+from collections import defaultdict
 from telegram import Update, Bot, User, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ForumIconColor, ParseMode
 from telegram.error import TelegramError
@@ -25,29 +27,32 @@ from utils.events import _send_event
 from utils.strings import get_text
 from datetime import datetime, timezone
 
-async def _ensure_topic(bot: Bot, user: User) -> int:
-    row = db_get_user(user.id)
-    if row and row["topic_id"]:
-        return row["topic_id"]
+# Guards concurrent topic-creation for the same user — only matters once
+# concurrent update processing is enabled (currently off, see H5), but two
+# in-flight messages from the same brand-new user would otherwise both see
+# no topic_id and both call create_forum_topic (M1, docs/AUDIT-2026-07-10.md).
+_topic_locks = defaultdict(asyncio.Lock)
 
+async def _create_topic(bot: Bot, user: User) -> int:
+    """Create a fresh forum topic for `user`, persist it, and post the
+    standard info card. Shared by the first-contact path in _ensure_topic
+    and the dead-topic recovery path in handle_private_message — recovery
+    must NOT re-fire the "new user" event below, since the user isn't new
+    (H2, docs/AUDIT-2026-07-10.md)."""
     name = (user.first_name or "User") + (f" {user.last_name}" if user.last_name else "")
     if len(name) > 128:
         log.warning("Topic name truncated to 128 chars for user %s: %r", user.id, name)
         name = name[:128]
 
-    try:
-        # FEAT-001: random colored circle icon per user topic
-        icon = random.choice(list(ForumIconColor))
-        topic = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name, icon_color=icon)
-        topic_id = topic.message_thread_id
-    except TelegramError as e:
-        log.error("Failed to create forum topic for user %s: %s", user.id, e)
-        raise
+    # FEAT-001: random colored circle icon per user topic
+    icon = random.choice(list(ForumIconColor))
+    topic = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=name, icon_color=icon)
+    topic_id = topic.message_thread_id
 
     db_upsert_user(user, topic_id=topic_id)
     tags_list = db_get_tags(user.id)
     tag_str = ", ".join(tags_list) if tags_list else "none"
-    
+
     info = get_text(
         "admin_relay.new_topic_info",
         user_link=_user_link(user.id, name),
@@ -56,12 +61,31 @@ async def _ensure_topic(bot: Bot, user: User) -> int:
         tags=tag_str,
         date=_now_iso()[:10]
     )
-
     await bot.send_message(chat_id=ADMIN_GROUP_ID, message_thread_id=topic_id, text=info, parse_mode=ParseMode.HTML)
-    
-    event_text = get_text("admin_relay.new_user_event", user_link=_user_link(user.id, name), user_id=user.id)
-    await _send_event(bot, "new_user", event_text)
     return topic_id
+
+async def _ensure_topic(bot: Bot, user: User) -> int:
+    row = db_get_user(user.id)
+    if row and row["topic_id"]:
+        return row["topic_id"]
+
+    async with _topic_locks[user.id]:
+        # Re-check: another concurrent call for this same user may have
+        # already created the topic while we were waiting for the lock.
+        row = db_get_user(user.id)
+        if row and row["topic_id"]:
+            return row["topic_id"]
+
+        try:
+            topic_id = await _create_topic(bot, user)
+        except TelegramError as e:
+            log.error("Failed to create forum topic for user %s: %s", user.id, e)
+            raise
+
+        name = (user.first_name or "User") + (f" {user.last_name}" if user.last_name else "")
+        event_text = get_text("admin_relay.new_user_event", user_link=_user_link(user.id, name[:128]), user_id=user.id)
+        await _send_event(bot, "new_user", event_text)
+        return topic_id
 
 async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.effective_message
@@ -157,6 +181,27 @@ async def handle_private_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
     topic_id = await _ensure_topic(ctx.bot, user)
     fwd = await _forward_to_topic(ctx.bot, msg, topic_id)
+    if fwd is None:
+        # Topic may have been deleted in Telegram (utils.media._forward_to_topic
+        # swallows the TelegramError and returns None) — without recovery, this
+        # user's topic_id stays stale forever and every future message from
+        # them silently vanishes here (H2, docs/AUDIT-2026-07-10.md).
+        log.warning("Forward to topic %s failed for user %s — recreating topic", topic_id, user.id)
+        try:
+            topic_id = await _create_topic(ctx.bot, user)
+        except TelegramError as e:
+            log.error("Topic recovery failed for user %s: %s", user.id, e)
+            topic_id = None
+        if topic_id:
+            fwd = await _forward_to_topic(ctx.bot, msg, topic_id)
+        if fwd is None:
+            log.error("Message from user %s could not be relayed even after topic recovery", user.id)
+            await ctx.bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=(f"⚠️ Could not relay a message from {_user_link(user.id, user.first_name or 'User')} "
+                      f"(id {user.id}) — check the bot's permissions in this group."),
+                parse_mode=ParseMode.HTML,
+            )
     if fwd:
         # Reply threading: admin replying to this forward quotes the original
         db_map_message(user.id, msg.message_id, fwd.message_id)
@@ -202,8 +247,22 @@ async def handle_admin_group_message(update: Update, ctx: ContextTypes.DEFAULT_T
     # handle_private_message.
     awaiting = db_get_awaiting_edit_draft(thread_id)
     if awaiting:
-        corrected = msg.text or msg.caption or ""
-        await ctx.bot.send_message(chat_id=awaiting["user_id"], text=corrected)
+        corrected = (msg.text or msg.caption or "")[:4096]
+        if not corrected:
+            await msg.reply_text("⚠️ Empty message — send the corrected reply text.")
+            return
+        try:
+            await ctx.bot.send_message(chat_id=awaiting["user_id"], text=corrected)
+        except Exception as e:
+            # Without this, a send failure (blocked chat, Telegram error)
+            # leaves the draft stuck "awaiting_edit" forever — every future
+            # admin message in this topic keeps being intercepted and
+            # swallowed instead of relayed (H3, docs/AUDIT-2026-07-10.md).
+            log.error("Failed to send edited AI draft to user %s: %s", awaiting["user_id"], e)
+            db_set_draft_status(awaiting["id"], "pending")
+            await msg.reply_text(
+                f"⚠️ Failed to send to user: {e}. Draft reverted to pending — try again or dismiss it.")
+            return
         db_log_message(awaiting["user_id"], "out", "text", corrected)
         db_update_draft_text(awaiting["id"], corrected)
         db_set_draft_status(awaiting["id"], "edited")

@@ -1,5 +1,6 @@
 """Tests for the relay core: user DM → topic, admin topic → user, broadcasts,
 wallet input flows intercepted in the DM handler."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from stellar_sdk import Keypair
@@ -95,6 +96,39 @@ class TestHandlePrivateMessage:
         await handle_private_message(make_update(user=tg_user, message=make_message("back")),
                                      make_context(bot))
         assert db_get_user(tg_user.id)["blocked"] == 0
+
+    async def test_forward_failure_recovers_by_recreating_topic(self, bot, tg_user):
+        """H2 (docs/AUDIT-2026-07-10.md): without recovery, a topic deleted
+        in Telegram means this user's messages vanish forever — nothing
+        ever clears the stale topic_id or retries."""
+        db_upsert_user(tg_user, topic_id=999)  # topic since deleted in Telegram
+        msg = make_message("are you there?")
+        msg.forward = AsyncMock(side_effect=[
+            TelegramError("message thread not found"),
+            SimpleNamespace(message_id=8801),
+        ])
+
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+
+        assert msg.forward.await_count == 2
+        bot.create_forum_topic.assert_awaited_once()
+        assert db_get_user(tg_user.id)["topic_id"] == 777  # new topic persisted
+        assert all("Could not relay" not in c.kwargs.get("text", "")
+                  for c in bot.send_message.await_args_list)
+
+    async def test_forward_failure_alerts_admin_group_when_recovery_also_fails(self, bot, tg_user):
+        db_upsert_user(tg_user, topic_id=999)
+        msg = make_message("hello?")
+        msg.forward = AsyncMock(side_effect=TelegramError("message thread not found"))
+
+        await handle_private_message(make_update(user=tg_user, message=msg), make_context(bot))
+
+        assert msg.forward.await_count == 2  # original attempt + retry after recreate
+        bot.create_forum_topic.assert_awaited_once()
+        alerts = [c for c in bot.send_message.await_args_list
+                 if c.kwargs.get("message_thread_id") is None and "Could not relay" in c.kwargs.get("text", "")]
+        assert len(alerts) == 1
+        assert str(tg_user.id) in alerts[0].kwargs["text"]
 
     async def test_spam_warn_then_autoban(self, bot, tg_user):
         ctx = make_context(bot)
@@ -299,6 +333,40 @@ class TestAdminGroupMessage:
         row = db_get_draft(draft_id)
         assert row["status"] == "edited"
         assert row["draft_text"] == "corrected reply text"
+
+    async def test_awaiting_ai_edit_send_failure_reverts_to_pending(self, bot, tg_user):
+        """H3 (docs/AUDIT-2026-07-10.md): a failed send must not leave the
+        draft stuck awaiting_edit forever — every future admin message in
+        the topic would otherwise keep being intercepted and swallowed."""
+        db_upsert_user(tg_user, topic_id=55)
+        draft_id = db_create_draft(tg_user.id, 55, "original draft")
+        db_set_draft_status(draft_id, "awaiting_edit")
+        bot.send_message.side_effect = TelegramError("bot was blocked by the user")
+
+        admin = make_tg_user(ADMIN_ID)
+        msg = make_message("corrected reply text", thread_id=55)
+        await handle_admin_group_message(make_update(user=admin, message=msg, chat_type="group"),
+                                         make_context(bot))
+
+        row = db_get_draft(draft_id)
+        assert row["status"] == "pending"
+        assert row["draft_text"] == "original draft"  # never overwritten on failure
+        assert db_export_messages(tg_user.id) == []  # never logged as sent
+        msg.reply_text.assert_awaited_once()
+        assert "Failed to send" in msg.reply_text.await_args.args[0]
+
+    async def test_awaiting_ai_edit_empty_correction_is_rejected(self, bot, tg_user):
+        db_upsert_user(tg_user, topic_id=55)
+        draft_id = db_create_draft(tg_user.id, 55, "original draft")
+        db_set_draft_status(draft_id, "awaiting_edit")
+
+        admin = make_tg_user(ADMIN_ID)
+        msg = make_message(text=None, thread_id=55)  # e.g. a sticker with no text/caption
+        await handle_admin_group_message(make_update(user=admin, message=msg, chat_type="group"),
+                                         make_context(bot))
+
+        assert db_get_draft(draft_id)["status"] == "awaiting_edit"
+        bot.send_message.assert_not_awaited()
 
     async def test_awaiting_ai_edit_takes_priority_over_broadcast_topic(self, bot, tg_user):
         """Ordering guard: the intercept must run before the broadcast-topic

@@ -1,6 +1,6 @@
-python-telegram-bot
-apscheduler
-stellar-sdk
-cryptography
-httpx
-anthropic
+python-telegram-bot==22.5
+apscheduler==3.11.3
+stellar-sdk==13.1.0
+cryptography==49.0.0
+httpx==0.28.1
+anthropic==0.116.0

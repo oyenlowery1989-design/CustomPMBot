@@ -138,3 +138,16 @@ class TestStagedFlow:
         await _stage_broadcast(bot, msg)
         text = bot.send_message.await_args.kwargs["text"]
         assert "0" in text and "nobody" in text.lower()
+
+    async def test_confirm_malformed_data_still_answers(self, bot):
+        """L3 (docs/AUDIT-2026-07-10.md): a bare int(...) on malformed
+        callback_data used to raise before q.answer() ever ran — the button
+        would spin until Telegram's own timeout instead of failing visibly."""
+        q = make_callback_query(_admin(), data="bc_go_not-a-number")
+        await cb_broadcast_confirm(make_update(user=_admin(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Error")
+
+    async def test_cancel_malformed_data_still_answers(self, bot):
+        q = make_callback_query(_admin(), data="bc_no_not-a-number")
+        await cb_broadcast_cancel(make_update(user=_admin(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Error")

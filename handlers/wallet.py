@@ -33,9 +33,13 @@ async def cmd_wallets(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("No wallets registered.")
         return
     lines = ["💳 <b>Registered Wallets</b>\n"]
-    for w in wallets: 
+    for w in wallets:
         safe_label = html.escape(w['label'])
-        lines.append(f"• <code>{w['user_id']}</code>: <code>{w['address']}</code> ({safe_label})")
+        # Masked the same way _show_wallet_menu shows it to the wallet's own
+        # owner — this admin-facing list has no reason to expose the full
+        # address either (L2, docs/AUDIT-2026-07-10.md).
+        addr_display = w['address'][:6] + "..." + w['address'][-4:]
+        lines.append(f"• <code>{w['user_id']}</code>: <code>{addr_display}</code> ({safe_label})")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

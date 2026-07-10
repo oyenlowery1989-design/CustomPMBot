@@ -6,7 +6,9 @@ lives in handle_admin_group_message (handlers/relay.py), so that part is
 covered in tests/test_handlers_relay.py alongside the rest of that
 function's tests — this file only covers what's actually defined in
 handlers/ai_reply.py."""
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+
+from telegram.error import TelegramError
 
 import handlers.ai_reply as ai_reply
 from handlers.ai_reply import cmd_ai, cb_ai_draft, cb_ai_send, cb_ai_edit, cb_ai_dismiss
@@ -79,12 +81,26 @@ class TestCmdAi:
         assert db_get_setting("ai_enabled", "off") == "off"
 
 
+def _rando():
+    return make_tg_user(666, "Rando")
+
+
 class TestCbAiDraft:
+    async def test_non_admin_ignored(self, bot, tg_user, monkeypatch):
+        fake_generate = AsyncMock()
+        monkeypatch.setattr(ai_reply, "generate_draft", fake_generate)
+        q = make_callback_query(_rando(), data=f"ai_draft_{tg_user.id}_900",
+                                message=make_message(thread_id=55))
+        await cb_ai_draft(make_update(user=_rando(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Admins only")
+        fake_generate.assert_not_called()
+        bot.send_message.assert_not_awaited()
+
     async def test_creates_row_and_posts_three_buttons(self, bot, tg_user, monkeypatch):
         db_upsert_user(tg_user, topic_id=55)
         db_log_message(tg_user.id, "in", "text", "first message")
         db_log_message(tg_user.id, "out", "text", "we replied")
-        fake_generate = MagicMock(return_value={
+        fake_generate = AsyncMock(return_value={
             "action": "draft", "text": "Let's sort that out for you.", "reason": "",
         })
         monkeypatch.setattr(ai_reply, "generate_draft", fake_generate)
@@ -97,7 +113,10 @@ class TestCbAiDraft:
         sent = bot.send_message.await_args
         assert sent.kwargs["chat_id"] == ADMIN_GROUP_ID
         assert sent.kwargs["message_thread_id"] == 55
-        assert sent.kwargs["text"] == "Let's sort that out for you."
+        # Labeled distinctly from an already-sent message (L10,
+        # docs/AUDIT-2026-07-10.md); the underlying draft_text stored in the
+        # DB (and what Send actually relays) stays unlabeled — see below.
+        assert sent.kwargs["text"] == "🤖 DRAFT — review before sending:\n\nLet's sort that out for you."
         assert sent.kwargs["reply_to_message_id"] == 900
 
         buttons = [b for row in sent.kwargs["reply_markup"].inline_keyboard for b in row]
@@ -118,7 +137,7 @@ class TestCbAiDraft:
 
     async def test_escalate_posts_plain_text_and_creates_no_row(self, bot, tg_user, monkeypatch):
         db_upsert_user(tg_user, topic_id=55)
-        monkeypatch.setattr(ai_reply, "generate_draft", MagicMock(return_value={
+        monkeypatch.setattr(ai_reply, "generate_draft", AsyncMock(return_value={
             "action": "escalate", "text": "", "reason": "Guidelines say never discuss refunds",
         }))
 
@@ -131,8 +150,62 @@ class TestCbAiDraft:
         assert "reply_markup" not in sent.kwargs
         assert db_get_draft(1) is None  # no ai_drafts row ever created
 
+    async def test_post_failure_marks_draft_failed_and_notifies(self, bot, tg_user, monkeypatch):
+        """H6 (docs/AUDIT-2026-07-10.md): without this, a send failure left
+        the row 'pending' with topic_msg_id=NULL forever — invisible to
+        admins, since nothing ever surfaces it again."""
+        db_upsert_user(tg_user, topic_id=55)
+        monkeypatch.setattr(ai_reply, "generate_draft", AsyncMock(return_value={
+            "action": "draft", "text": "Let's sort that out for you.", "reason": "",
+        }))
+        bot.send_message = AsyncMock(side_effect=[Exception("Telegram API error"), make_message()])
+
+        q = make_callback_query(_admin(), data=f"ai_draft_{tg_user.id}_900",
+                                message=make_message(thread_id=55))
+        await cb_ai_draft(make_update(user=_admin(), callback_query=q), make_context(bot))
+
+        row = db_get_draft(1)
+        assert row["status"] == "failed"
+        assert row["topic_msg_id"] is None
+        # the second send_message call is the in-topic failure notice
+        assert bot.send_message.await_count == 2
+        assert "Failed to post" in bot.send_message.await_args_list[1].kwargs["text"]
+
+    async def test_double_press_is_ignored_while_a_draft_is_in_flight(self, bot, tg_user, monkeypatch):
+        """M5 (docs/AUDIT-2026-07-10.md): a double-press must not fire two
+        concurrent (paid) Anthropic calls / post two draft cards. Simulate
+        overlap by having generate_draft itself re-enter cb_ai_draft."""
+        db_upsert_user(tg_user, topic_id=55)
+        second_q = make_callback_query(_admin(), data=f"ai_draft_{tg_user.id}_900",
+                                       message=make_message(thread_id=55))
+
+        async def fake_generate(*args, **kwargs):
+            # Fires while the first call still holds the in-flight guard.
+            await cb_ai_draft(make_update(user=_admin(), callback_query=second_q), make_context(bot))
+            return {"action": "draft", "text": "Let's sort that out for you.", "reason": ""}
+
+        monkeypatch.setattr(ai_reply, "generate_draft", AsyncMock(side_effect=fake_generate))
+
+        q = make_callback_query(_admin(), data=f"ai_draft_{tg_user.id}_900",
+                                message=make_message(thread_id=55))
+        await cb_ai_draft(make_update(user=_admin(), callback_query=q), make_context(bot))
+
+        second_q.answer.assert_awaited_once_with("Already drafting a reply for this topic…")
+        # only the first call's draft got created/posted
+        assert db_get_draft(1) is not None
+        assert db_get_draft(2) is None
+        assert ai_reply._drafting_topics == set()  # guard released after completion
+
 
 class TestCbAiSend:
+    async def test_non_admin_ignored(self, bot, tg_user):
+        draft_id = db_create_draft(tg_user.id, 55, "Sure, here's the fix.")
+        q = make_callback_query(_rando(), data=f"ad_s_{draft_id}")
+        await cb_ai_send(make_update(user=_rando(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Admins only")
+        assert db_get_draft(draft_id)["status"] == "pending"
+        assert all(c.kwargs.get("chat_id") != tg_user.id for c in bot.send_message.await_args_list)
+
     async def test_send_relays_logs_and_marks_sent(self, bot, tg_user):
         draft_id = db_create_draft(tg_user.id, 55, "Sure, here's the fix.")
         q = make_callback_query(_admin(), data=f"ad_s_{draft_id}")
@@ -156,8 +229,39 @@ class TestCbAiSend:
         q.answer.assert_awaited_with("Draft not found")
         assert all(c.kwargs.get("chat_id") != tg_user.id for c in bot.send_message.await_args_list)
 
+    async def test_double_press_does_not_double_send(self, bot, tg_user):
+        """M4 (docs/AUDIT-2026-07-10.md): once a draft is sent, a second
+        press (or a retry) must not relay a duplicate message to the user."""
+        draft_id = db_create_draft(tg_user.id, 55, "Sure, here's the fix.")
+        q1 = make_callback_query(_admin(), data=f"ad_s_{draft_id}")
+        await cb_ai_send(make_update(user=_admin(), callback_query=q1), make_context(bot))
+
+        q2 = make_callback_query(_admin(), data=f"ad_s_{draft_id}")
+        await cb_ai_send(make_update(user=_admin(), callback_query=q2), make_context(bot))
+
+        q2.answer.assert_awaited_once_with("Already handled")
+        sends = [c for c in bot.send_message.await_args_list if c.kwargs.get("chat_id") == tg_user.id]
+        assert len(sends) == 1
+
+    async def test_telegram_error_answers_error_and_leaves_draft_pending(self, bot, tg_user):
+        """M7 (docs/AUDIT-2026-07-10.md): the broad except Exception branch
+        here was never exercised by any test."""
+        draft_id = db_create_draft(tg_user.id, 55, "Sure, here's the fix.")
+        bot.send_message = AsyncMock(side_effect=TelegramError("bot was blocked by the user"))
+        q = make_callback_query(_admin(), data=f"ad_s_{draft_id}")
+        await cb_ai_send(make_update(user=_admin(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Error")
+        assert db_get_draft(draft_id)["status"] == "pending"  # never got to mark it sent
+
 
 class TestCbAiEdit:
+    async def test_non_admin_ignored(self, bot, tg_user):
+        draft_id = db_create_draft(tg_user.id, 55, "Draft text")
+        q = make_callback_query(_rando(), data=f"ad_e_{draft_id}")
+        await cb_ai_edit(make_update(user=_rando(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Admins only")
+        assert db_get_draft(draft_id)["status"] == "pending"
+
     async def test_marks_awaiting_edit_and_strips_buttons(self, bot, tg_user):
         draft_id = db_create_draft(tg_user.id, 55, "Draft text")
         q = make_callback_query(_admin(), data=f"ad_e_{draft_id}")
@@ -168,8 +272,24 @@ class TestCbAiEdit:
         q.edit_message_text.assert_awaited_once_with(
             "✏️ Reply in this topic with the corrected text.", reply_markup=None)
 
+    async def test_telegram_error_answers_error(self, bot, tg_user):
+        """M7 (docs/AUDIT-2026-07-10.md): the broad except Exception branch
+        here was never exercised by any test."""
+        draft_id = db_create_draft(tg_user.id, 55, "Draft text")
+        q = make_callback_query(_admin(), data=f"ad_e_{draft_id}")
+        q.edit_message_text = AsyncMock(side_effect=TelegramError("message to edit not found"))
+        await cb_ai_edit(make_update(user=_admin(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_with("Error")
+
 
 class TestCbAiDismiss:
+    async def test_non_admin_ignored(self, bot, tg_user):
+        draft_id = db_create_draft(tg_user.id, 55, "Draft text")
+        q = make_callback_query(_rando(), data=f"ad_d_{draft_id}")
+        await cb_ai_dismiss(make_update(user=_rando(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_once_with("Admins only")
+        assert db_get_draft(draft_id)["status"] == "pending"
+
     async def test_marks_dismissed_and_sends_nothing_to_user(self, bot, tg_user):
         draft_id = db_create_draft(tg_user.id, 55, "Draft text")
         q = make_callback_query(_admin(), data=f"ad_d_{draft_id}")
@@ -178,3 +298,12 @@ class TestCbAiDismiss:
         assert db_get_draft(draft_id)["status"] == "dismissed"
         assert bot.send_message.await_args_list == []
         q.edit_message_text.assert_awaited_once_with("❌ Dismissed", reply_markup=None)
+
+    async def test_telegram_error_answers_error(self, bot, tg_user):
+        """M7 (docs/AUDIT-2026-07-10.md): the broad except Exception branch
+        here was never exercised by any test."""
+        draft_id = db_create_draft(tg_user.id, 55, "Draft text")
+        q = make_callback_query(_admin(), data=f"ad_d_{draft_id}")
+        q.edit_message_text = AsyncMock(side_effect=TelegramError("message to edit not found"))
+        await cb_ai_dismiss(make_update(user=_admin(), callback_query=q), make_context(bot))
+        q.answer.assert_awaited_with("Error")

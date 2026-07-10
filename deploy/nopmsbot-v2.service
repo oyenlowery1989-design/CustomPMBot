@@ -2,6 +2,11 @@
 Description=NoPMsBot — Telegram support-desk bot (v2.3)
 After=network-online.target
 Wants=network-online.target
+# Cap the crash-restart loop: after 5 failures within 60s, systemd stops
+# retrying instead of looping forever on a broken env/config (M10,
+# docs/AUDIT-2026-07-10.md). `systemctl reset-failed nopmsbot-v2` re-arms it.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple

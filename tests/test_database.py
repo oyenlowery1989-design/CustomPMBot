@@ -10,7 +10,11 @@ from database.users import (
     db_set_relay_paused, db_mark_blocked, db_mark_unblocked, db_user_count,
     db_full_stats, db_get_subscribers_by_tag, db_force_broadcast_all,
 )
-from database.messages import db_log_message, db_export_messages
+from database.messages import (
+    db_log_message, db_export_messages, db_map_message,
+    prune_old_messages, prune_old_message_map,
+)
+from database.ai_drafts import db_create_draft, db_set_draft_status, db_get_draft, prune_old_drafts
 from database.tags import db_add_tag, db_remove_tag, db_get_tags
 from database.bans import (
     db_is_banned, db_ban, db_unban, db_get_banned,
@@ -98,6 +102,26 @@ class TestMigrations:
     def test_relay_paused_column_exists(self, fresh_db):
         cols = {r["name"] for r in fresh_db.execute("PRAGMA table_info(users)").fetchall()}
         assert "relay_paused" in cols
+
+    def test_message_map_created_at_column_exists(self, fresh_db):
+        cols = {r["name"] for r in fresh_db.execute("PRAGMA table_info(message_map)").fetchall()}
+        assert "created_at" in cols
+
+    def test_v12_to_v13_backfills_message_map_created_at(self, fresh_db):
+        """Existing message_map rows from before v13 have no created_at —
+        the migration must stamp them rather than leave NULL (which would
+        make them immediately eligible for retention pruning)."""
+        fresh_db.execute(
+            "INSERT INTO message_map (topic_msg_id, user_msg_id, user_id) VALUES (1, 2, 3)"
+        )
+        fresh_db.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('schema_version','12')")
+        fresh_db.commit()
+
+        _run_migrations(fresh_db)
+
+        assert _get_schema_version(fresh_db) == SCHEMA_VERSION
+        row = fresh_db.execute("SELECT created_at FROM message_map WHERE topic_msg_id=1").fetchone()
+        assert row["created_at"] is not None
 
     def test_indexes_created(self, fresh_db):
         indexes = {r["name"] for r in fresh_db.execute(
@@ -229,6 +253,55 @@ class TestMessages:
         db_log_message(1, "in", "photo", None)
         assert db_export_messages(1)[0]["text"] == ""
 
+    def test_prune_old_messages_removes_only_stale_rows(self, fresh_db):
+        """L5 (docs/AUDIT-2026-07-10.md): messages otherwise grow forever."""
+        db_log_message(1, "in", "text", "old")
+        fresh_db.execute("UPDATE messages SET timestamp=? WHERE text='old'", (_past(60 * 24 * 200),))
+        db_log_message(1, "in", "text", "recent")
+        fresh_db.commit()
+
+        removed = prune_old_messages(180)
+
+        assert removed == 1
+        remaining = {r["text"] for r in db_export_messages(1)}
+        assert remaining == {"recent"}
+
+    def test_prune_old_message_map_removes_only_stale_rows(self, fresh_db):
+        """L5 (docs/AUDIT-2026-07-10.md): message_map otherwise grows forever."""
+        db_map_message(1, 100, 200)
+        fresh_db.execute("UPDATE message_map SET created_at=? WHERE topic_msg_id=200", (_past(60 * 24 * 200),))
+        db_map_message(1, 101, 201)
+        fresh_db.commit()
+
+        removed = prune_old_message_map(180)
+
+        assert removed == 1
+        rows = fresh_db.execute("SELECT topic_msg_id FROM message_map").fetchall()
+        assert {r["topic_msg_id"] for r in rows} == {201}
+
+
+class TestAiDraftsRetention:
+    def test_prune_old_drafts_removes_only_stale_terminal_rows(self, fresh_db):
+        """L6 (docs/AUDIT-2026-07-10.md): terminal-status ai_drafts rows
+        otherwise accumulate forever; pending/awaiting_edit rows must never
+        be pruned regardless of age since they're still actionable."""
+        old_sent = db_create_draft(1, 55, "old sent")
+        db_set_draft_status(old_sent, "sent")
+        old_pending = db_create_draft(1, 55, "old pending — still actionable")
+        recent_sent = db_create_draft(1, 55, "recent sent")
+        db_set_draft_status(recent_sent, "sent")
+
+        cutoff = _past(60 * 24 * 200)
+        fresh_db.execute("UPDATE ai_drafts SET created_at=? WHERE id IN (?,?)", (cutoff, old_sent, old_pending))
+        fresh_db.commit()
+
+        removed = prune_old_drafts(180)
+
+        assert removed == 1
+        assert db_get_draft(old_sent) is None
+        assert db_get_draft(old_pending) is not None  # never pruned, regardless of age
+        assert db_get_draft(recent_sent) is not None
+
 
 class TestTags:
     def test_add_uppercases_and_dedupes(self):
@@ -264,6 +337,21 @@ class TestBans:
     def test_future_ban_still_active(self):
         db_ban(1, "temp", expires_at=_future())
         assert db_is_banned(1) is True
+
+    def test_naive_expires_at_does_not_raise(self):
+        """L7 (docs/AUDIT-2026-07-10.md): a bare datetime.fromisoformat(...)
+        <= datetime.now(timezone.utc) comparison raises TypeError on a naive
+        (no-tzinfo) timestamp — db_is_banned must handle it via _is_past().
+        Built from UTC wall-clock values with tzinfo stripped, so the
+        past/future-ness holds regardless of the test machine's local zone
+        (matches how _is_past() reinterprets a naive value as UTC)."""
+        now_naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        db_ban(1, "temp", expires_at=(now_naive_utc - timedelta(minutes=5)).isoformat())
+        assert db_is_banned(1) is False  # doesn't raise, and correctly expired
+
+        db_ban(2, "temp", expires_at=(now_naive_utc + timedelta(minutes=5)).isoformat())
+        assert db_is_banned(2) is True  # doesn't raise, and correctly still active
 
     def test_unban(self):
         db_ban(1, "x")
@@ -478,3 +566,12 @@ class TestWallets:
         db_add_wallet(1, "G" + "A" * 55)
         db_add_wallet(2, "G" + "B" * 55)
         assert len(db_all_wallets()) == 2
+
+
+class TestConnection:
+    def test_busy_timeout_set_explicitly(self, fresh_db):
+        """L8 (docs/AUDIT-2026-07-10.md): without this, a writer under
+        contention gets "database is locked" immediately instead of
+        waiting briefly for the other writer to finish."""
+        busy_timeout = fresh_db.execute("PRAGMA busy_timeout").fetchone()[0]
+        assert busy_timeout == 5000

@@ -1,10 +1,13 @@
 import sqlite3
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from database.connection import get_db
 from utils.helpers import _now_iso
 
 log = logging.getLogger("nopmsbot")
+
+_TERMINAL_STATUSES = ("sent", "dismissed", "edited", "failed")
 
 def db_create_draft(user_id: int, topic_id: int, draft_text: str) -> int:
     """Insert a new pending draft. Returns the new row id."""
@@ -39,3 +42,18 @@ def db_get_awaiting_edit_draft(topic_id: int) -> Optional[sqlite3.Row]:
         "SELECT * FROM ai_drafts WHERE topic_id=? AND status='awaiting_edit' ORDER BY id DESC LIMIT 1",
         (topic_id,),
     ).fetchone()
+
+def prune_old_drafts(retention_days: int) -> int:
+    """Delete terminal-status rows (sent/dismissed/edited/failed) older than
+    retention_days. Rows still pending or awaiting_edit are left alone
+    regardless of age — those are still actionable. Without this, ai_drafts
+    grows forever (L6, docs/AUDIT-2026-07-10.md)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    placeholders = ",".join("?" * len(_TERMINAL_STATUSES))
+    db = get_db()
+    cur = db.execute(
+        f"DELETE FROM ai_drafts WHERE status IN ({placeholders}) AND created_at < ?",
+        (*_TERMINAL_STATUSES, cutoff),
+    )
+    db.commit()
+    return cur.rowcount

@@ -11,26 +11,33 @@ def db_get_user(user_id: int) -> Optional[sqlite3.Row]:
     return get_db().execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
 
 def db_upsert_user(u: User, topic_id: Optional[int] = None) -> None:
+    """Single atomic INSERT ... ON CONFLICT instead of SELECT-then-branch —
+    the old select-then-insert had a race window where two concurrent first
+    messages from the same brand-new user could both see no existing row and
+    both attempt an INSERT, raising an uncaught IntegrityError on the second
+    one and silently dropping that message (M2, docs/AUDIT-2026-07-10.md).
+    first_seen is only ever set on the initial INSERT, never touched by the
+    conflict update, matching the old UPDATE branches' behavior."""
     now = _now_iso()
     db = get_db()
-    existing = db_get_user(u.id)
-    if existing is None:
+    if topic_id is not None:
         db.execute(
             "INSERT INTO users (user_id, username, first_name, last_name, topic_id, first_seen, last_seen) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "username=excluded.username, first_name=excluded.first_name, "
+            "last_name=excluded.last_name, topic_id=excluded.topic_id, last_seen=excluded.last_seen",
             (u.id, u.username, u.first_name, u.last_name, topic_id, now, now),
         )
     else:
-        if topic_id is not None:
-            db.execute(
-                "UPDATE users SET username=?, first_name=?, last_name=?, topic_id=?, last_seen=? WHERE user_id=?",
-                (u.username, u.first_name, u.last_name, topic_id, now, u.id),
-            )
-        else:
-            db.execute(
-                "UPDATE users SET username=?, first_name=?, last_name=?, last_seen=? WHERE user_id=?",
-                (u.username, u.first_name, u.last_name, now, u.id),
-            )
+        db.execute(
+            "INSERT INTO users (user_id, username, first_name, last_name, topic_id, first_seen, last_seen) "
+            "VALUES (?,?,?,?,NULL,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "username=excluded.username, first_name=excluded.first_name, "
+            "last_name=excluded.last_name, last_seen=excluded.last_seen",
+            (u.id, u.username, u.first_name, u.last_name, now, now),
+        )
     db.commit()
 
 def db_set_topic(user_id: int, topic_id: int) -> None:

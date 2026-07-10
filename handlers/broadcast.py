@@ -176,7 +176,16 @@ async def cb_broadcast_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     if q.from_user.id not in ADMIN_IDS:
         await q.answer("Admins only")
         return
-    msg = _pending_broadcasts.pop(int(q.data.replace("bc_go_", "")), None)
+    try:
+        msg_id = int(q.data.replace("bc_go_", ""))
+    except (ValueError, AttributeError) as e:
+        # Without this, malformed callback_data raises before q.answer() ever
+        # runs — the button spins until Telegram's own timeout instead of
+        # failing visibly (L3, docs/AUDIT-2026-07-10.md).
+        log.error("cb_broadcast_confirm: bad callback data %r: %s", q.data, e)
+        await q.answer("Error")
+        return
+    msg = _pending_broadcasts.pop(msg_id, None)
     if msg is None:
         await q.answer("Expired — repost the broadcast message.")
         await q.edit_message_text("⚠️ Broadcast draft expired (bot restarted?). Repost the message.")
@@ -192,7 +201,13 @@ async def cb_broadcast_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
     if q.from_user.id not in ADMIN_IDS:
         await q.answer("Admins only")
         return
-    _pending_broadcasts.pop(int(q.data.replace("bc_no_", "")), None)
+    try:
+        msg_id = int(q.data.replace("bc_no_", ""))
+    except (ValueError, AttributeError) as e:
+        log.error("cb_broadcast_cancel: bad callback data %r: %s", q.data, e)
+        await q.answer("Error")
+        return
+    _pending_broadcasts.pop(msg_id, None)
     await q.answer("Cancelled")
     await q.edit_message_text("❌ Broadcast cancelled — nothing was sent.")
 

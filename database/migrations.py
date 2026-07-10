@@ -2,7 +2,7 @@ import logging
 import sqlite3
 
 log = logging.getLogger("nopmsbot")
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 def _get_schema_version(db: sqlite3.Connection) -> int:
     try:
@@ -19,6 +19,10 @@ def _set_schema_version(db: sqlite3.Connection, version: int) -> None:
     db.commit()
 
 def _run_migrations(db: sqlite3.Connection) -> None:
+    # Each step below calls _set_schema_version() (which commits) right after
+    # applying its own changes, instead of one commit at the very end of the
+    # whole chain — a crash mid-upgrade now resumes from the last completed
+    # step instead of silently losing that step's writes (M3, docs/AUDIT-2026-07-10.md).
     current = _get_schema_version(db)
     if current >= SCHEMA_VERSION:
         return
@@ -68,6 +72,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v0→v1: Base schema created")
         current = 1
+        _set_schema_version(db, current)
 
     if current < 2:
         db.executescript("""
@@ -78,6 +83,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v1→v2: Performance indexes added")
         current = 2
+        _set_schema_version(db, current)
 
     if current < 3:
         try:
@@ -85,6 +91,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
         current = 3
+        _set_schema_version(db, current)
 
     if current < 4:
         db.executescript("""
@@ -102,10 +109,12 @@ def _run_migrations(db: sqlite3.Connection) -> None:
             );
         """)
         current = 4
+        _set_schema_version(db, current)
 
     if current < 5:
         # Placeholder for old v5 wallets (we'll replace them in v6)
         current = 5
+        _set_schema_version(db, current)
 
     if current < 6:
         # THE BIG UPDATE: Multiple Wallets & Encrypted Storage
@@ -139,6 +148,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v5→v6: Multi-wallet and Encrypted Storage system added.")
         current = 6
+        _set_schema_version(db, current)
 
     if current < 7:
         # relay_paused: /close pauses relay without touching the `blocked` flag,
@@ -149,6 +159,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
             pass
         log.info("Migration v6→v7: relay_paused column added (topic close/reopen state).")
         current = 7
+        _set_schema_version(db, current)
 
     if current < 8:
         db.executescript("""
@@ -165,6 +176,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v7→v8: scheduled_broadcasts table added.")
         current = 8
+        _set_schema_version(db, current)
 
     if current < 9:
         db.executescript("""
@@ -181,6 +193,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
         """)
         log.info("Migration v8→v9: message_map (reply threading) and auto_replies added.")
         current = 9
+        _set_schema_version(db, current)
 
     if current < 10:
         # ISSUE-007: canned responses can carry media (file_id replay)
@@ -194,6 +207,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
                 pass
         log.info("Migration v9→v10: canned media columns added.")
         current = 10
+        _set_schema_version(db, current)
 
     if current < 11:
         # SEC-FIX: wallet_keys was keyed by address only, so two users who
@@ -255,6 +269,7 @@ def _run_migrations(db: sqlite3.Connection) -> None:
             "added; backfilled %d of %d legacy key(s).", backfilled, len(old_keys),
         )
         current = 11
+        _set_schema_version(db, current)
 
     if current < 12:
         db.executescript("""
@@ -264,14 +279,29 @@ def _run_migrations(db: sqlite3.Connection) -> None:
                 topic_id      INTEGER NOT NULL,   -- admin-group message_thread_id the draft lives in
                 topic_msg_id  INTEGER,            -- message_id of the draft message itself (for editing/removing buttons)
                 draft_text    TEXT NOT NULL,
-                status        TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | edited | dismissed | awaiting_edit
+                status        TEXT NOT NULL DEFAULT 'pending',  -- pending | sent | edited | dismissed | awaiting_edit | failed
                 created_at    TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_ai_drafts_topic ON ai_drafts(topic_id, status);
         """)
         log.info("Migration v11→v12: ai_drafts table added (AI-drafted replies).")
         current = 12
+        _set_schema_version(db, current)
 
-    _set_schema_version(db, current)
-    db.commit()
+    if current < 13:
+        # message_map and messages otherwise grow forever with no cleanup
+        # (L5/L6, docs/AUDIT-2026-07-10.md). messages already has a
+        # timestamp column; message_map never had one, so back it out here —
+        # existing rows get "now" as a best-effort stamp (their true age is
+        # unknown, but they'll age out normally from this point on).
+        try:
+            db.execute("ALTER TABLE message_map ADD COLUMN created_at TEXT")
+        except sqlite3.OperationalError:
+            pass
+        from utils.helpers import _now_iso
+        db.execute("UPDATE message_map SET created_at=? WHERE created_at IS NULL", (_now_iso(),))
+        log.info("Migration v12→v13: message_map.created_at added (retention pruning support).")
+        current = 13
+        _set_schema_version(db, current)
+
     log.info("DB migration complete: now at v%d", current)

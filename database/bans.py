@@ -1,9 +1,8 @@
 import sqlite3
 import logging
-from datetime import datetime, timezone
 from typing import Optional, List
 from database.connection import get_db
-from utils.helpers import _now_iso
+from utils.helpers import _now_iso, _is_past
 
 log = logging.getLogger("nopmsbot")
 
@@ -12,7 +11,10 @@ def db_is_banned(user_id: int) -> bool:
     if row is None:
         return False
     if row["expires_at"] is not None:
-        if datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
+        # _is_past() treats a naive (no-tzinfo) timestamp as UTC — a bare
+        # datetime.fromisoformat() comparison against an aware "now" raises
+        # TypeError on such a row (L7, docs/AUDIT-2026-07-10.md).
+        if _is_past(row["expires_at"]):
             get_db().execute("DELETE FROM bans WHERE user_id=?", (user_id,))
             get_db().commit()
             return False

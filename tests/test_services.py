@@ -7,7 +7,7 @@ from stellar_sdk import Keypair
 
 import services.encryption as encryption
 import services.spam as spam
-from services.spam import _check_spam, _reset_spam
+from services.spam import _check_spam, _reset_spam, prune_stale_spam_state
 from services.stellar import verify_secret_key_match, get_balances
 from services.watcher import StellarWatcher
 from config import SPAM_MAX_MSGS, SPAM_WARN_BEFORE_BAN
@@ -53,6 +53,38 @@ class TestSpam:
             _check_spam(1)
         _reset_spam(1)
         assert _check_spam(1) == "ok"
+
+    def test_prune_stale_spam_state_drops_inactive_users_only(self, monkeypatch):
+        """L4 (docs/AUDIT-2026-07-10.md): without pruning, every distinct
+        user who has ever messaged the bot keeps an entry in these dicts
+        forever, for the life of the process."""
+        t = [0.0]
+        monkeypatch.setattr(spam.time, "monotonic", lambda: t[0])
+        _check_spam(1)  # stale user — about to go quiet
+        t[0] += 11  # past the 10s window
+        _check_spam(2)  # active user — just messaged
+
+        removed = prune_stale_spam_state()
+
+        assert removed == 1
+        assert 1 not in spam._spam_timestamps
+        assert 2 in spam._spam_timestamps
+
+    def test_prune_stale_spam_state_also_clears_warning_count(self, monkeypatch):
+        t = [0.0]
+        monkeypatch.setattr(spam.time, "monotonic", lambda: t[0])
+        for _ in range(SPAM_MAX_MSGS):
+            _check_spam(1)
+        assert _check_spam(1) == "warn"
+        t[0] += 11  # past the 10s window — user goes quiet after warning once
+
+        prune_stale_spam_state()
+
+        assert 1 not in spam._spam_warnings
+        # a fresh burst afterwards starts clean, not immediately banned
+        for _ in range(SPAM_MAX_MSGS):
+            assert _check_spam(1) == "ok"
+        assert _check_spam(1) == "warn"
 
 
 class TestEncryption:
