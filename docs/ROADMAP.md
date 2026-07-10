@@ -103,7 +103,7 @@ Tap "Verify by Memo":
 ### Admin Flow (in user topic)
 ```
 /wallet
-  💳 Wallets for Example User (0000000000):
+  💳 Wallets for <example-user> (<example-user-id>):
   
   1. ✅ GABCD...WXYZ (main)
      Verified: memo — 2026-02-16 10:30

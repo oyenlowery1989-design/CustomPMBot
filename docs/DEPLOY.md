@@ -40,15 +40,18 @@ sudo bash /tmp/deploy.sh
 
 What it does:
 1. creates the `nopmsbot` system user (first run),
-2. stops the service, **backs up the DB** (`state.db.bak-<timestamp>`),
-3. first run: moves the legacy dir to `/opt/nopmsbot-v2.old-<timestamp>`,
+2. first run: moves the legacy dir to `/opt/nopmsbot-v2.old-<timestamp>`,
    clones the repo, carries `state.db` over — later runs: `git pull`,
-4. installs the venv + dependencies,
+3. installs the venv + dependencies — steps 2–3 run **before** the service is
+   stopped, so a network blip or dependency error fails loudly with the old
+   bot still running instead of leaving it down with nothing to restart it,
+4. only now stops the service and **backs up the DB** (`state.db.bak-<timestamp>`),
 5. installs/refreshes the hardened systemd unit (`nopmsbot-v2`),
 6. restarts and prints the log tail.
 
-DB migrations run automatically on start — the old schema upgrades to v10
-incrementally; existing data is preserved (covered by tests).
+DB migrations run automatically on start — the schema upgrades incrementally
+to whatever `SCHEMA_VERSION` is defined as in `database/migrations.py`
+(currently 13); existing data is preserved (covered by tests).
 
 ## 3. Verify
 
@@ -79,7 +82,7 @@ cp /opt/nopmsbot-v2.failed/state.db.bak-<timestamp> /opt/nopmsbot-v2/state.db  #
 systemctl start <old-service-name>
 ```
 
-Note: the new schema (v10) is backward-incompatible with old code only in the
+Note: a newer schema is backward-incompatible with old code only in the
 sense that old code ignores new tables/columns — restoring the pre-deploy
 `.bak` DB alongside old code is the clean rollback.
 

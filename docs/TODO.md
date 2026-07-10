@@ -133,8 +133,8 @@ message passes a human.
 
 - **VPS:** <vps-host> (Ubuntu 24.04)
 - **DB:** SQLite at `/opt/nopmsbot-v2/state.db`
-- **Library:** python-telegram-bot (20.7 in prod; tests run against 22.x)
+- **Library:** python-telegram-bot 22.5, pinned in requirements.txt (2026-07-10 — standardized on 22.x, what tests actually run against; previously unpinned and documented as 20.7 in prod, a drift the audit flagged as H7)
 - **Admin group ID:** <admin-group-id>
 - **Owner ID:** <owner-id>
-- **Schema version:** 12
+- **Schema version:** 13 (message_map.created_at added 2026-07-10 for retention pruning)
 - **Deploy:** `sudo bash deploy/deploy.sh` on the VPS (see docs/DEPLOY.md); handles legacy→git migration, DB backup, systemd unit

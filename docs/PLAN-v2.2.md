@@ -211,10 +211,10 @@ Status: Verified (memo) — Feb 16, 2026
 ## Admin View — In User Topic
 
 ```
-Admin types: /wallet (in Example User's topic)
+Admin types: /wallet (in <example-user>'s topic)
 
-💳 Wallets for Example User (@example_user)
-User ID: 0000000000
+💳 Wallets for <example-user> (@example_user)
+User ID: <example-user-id>
 
 1. ✅ GABCD...WXYZ — "Main"
    Full: GABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ABCDEFGHIJKLMNO

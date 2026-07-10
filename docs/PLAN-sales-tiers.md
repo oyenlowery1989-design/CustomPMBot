@@ -229,7 +229,7 @@ Admin creates a payment request → user pays → auto-confirmed.
 ```
 Admin (in user topic): /invoice 50 XLM VIP Membership
 
-Bot (to admin): "🧾 Invoice created for Example User"
+Bot (to admin): "🧾 Invoice created for <example-user>"
 Bot (to admin): "Amount: 50 XLM"
 Bot (to admin): "Description: VIP Membership"
 Bot (to admin): "Memo: INV-394827"
@@ -249,7 +249,7 @@ Bot (to user): "[💳 Pay Now (LOBSTR)] [❌ Decline]"
 --- user pays ---
 
 Bot (to user): "✅ Payment confirmed! Thank you."
-Bot (to admin): "✅ Invoice INV-394827 paid by Example User (50 XLM)"
+Bot (to admin): "✅ Invoice INV-394827 paid by <example-user> (50 XLM)"
 ```
 
 ### Database:
